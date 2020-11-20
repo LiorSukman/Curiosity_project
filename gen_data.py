@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import scipy
+import os
 
 EPS = 0.05
 REPS  = 5
@@ -21,7 +22,27 @@ def save_data(s, a, x, path, rep):
     -----------
     The function saves the examples to the path. If the path exsits adds the data to it, o/w creates a csv file
     """
-    raise NotImplemented
+
+    actions = np.arange(1, a + 1, dtype=int)
+    n=s.shape[0]
+    actions=np.repeat(actions,n)
+    examples = np.asarray([s, actions, x])
+    if rep == 0:
+        if not os.path.isfile(path):
+            f=np.savetxt(path + ".csv", examples, delimiter=",")
+            return f
+        else:
+            raise Exception("File already exists")
+    elif rep > 0:
+        with open(path, 'wb') as f:
+            f=np.savetxt(f, examples, delimiter=",")
+        return f
+    else:
+        raise Exception("rep argument must be a positive number")
+
+
+
+
 
 def get_predictions(x, y, model):
     raise NotImplemented
