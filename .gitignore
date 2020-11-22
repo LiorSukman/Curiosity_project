@@ -1,5 +1,4 @@
 .git
 **/__pycache__
 **/data
-**/trained_models
 generated_data.csv
