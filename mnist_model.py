@@ -30,7 +30,7 @@ class Net(nn.Module):
         x = F.relu(x)
         x = self.dropout2(x)
         x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
+        output = F.log_softmax(x, dim = 1)
         return output
 
 
@@ -68,32 +68,35 @@ def test(model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+    return test_loss
 
 
 def main():
     # Training settings
-    parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser = argparse.ArgumentParser(description = 'PyTorch MNIST Example')
+    parser.add_argument('--batch-size', type = int, default = 64, metavar = 'N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+    parser.add_argument('--test-batch-size', type = int, default = 1000, metavar = 'N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=5, metavar='N',
+    parser.add_argument('--epochs', type = int, default = 200, metavar = 'N',
                         help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
+    parser.add_argument('--lr', type = float, default = 1.0, metavar = 'LR',
                         help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
+    parser.add_argument('--gamma', type = float, default=0.7, metavar = 'M',
                         help='Learning rate step gamma (default: 0.7)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    parser.add_argument('--no-cuda', action = 'store_true', default = False,
                         help='disables CUDA training')
-    parser.add_argument('--dry-run', action='store_true', default=False,
+    parser.add_argument('--dry-run', action = 'store_true', default = False,
                         help='quickly check a single pass')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
+    parser.add_argument('--seed', type = int, default=1, metavar = 'S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=40, metavar='N',
+    parser.add_argument('--log-interval', type = int, default = 40, metavar = 'N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--save-model', action='store_true', default=True,
+    parser.add_argument('--save-model', action = 'store_true', default = True,
                         help='For Saving the current Model')
-    parser.add_argument('--load-model', action='store_true', default=False,
+    parser.add_argument('--load-model', action = 'store_true', default = False,
+                        help='For Loading the Model Instead of Training')
+    parser.add_argument('--load-path', type = str, default = "trained _models/mnist_cnn.pt",
                         help='For Loading the Model Instead of Training')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -120,35 +123,45 @@ def main():
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000])
     dataset2 = datasets.MNIST('../data', train = False, download = True,
                        transform = transform)
+    test1_set, test2_set = torch.utils.data.random_split(dataset2, [5_000, 5_000])
     train_loader = torch.utils.data.DataLoader(train_set, **train_kwargs)
     dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
-    test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
+    test1_loader = torch.utils.data.DataLoader(test1_set, **test_kwargs)
+    test2_loader = torch.utils.data.DataLoader(test2_set, **test_kwargs)
 
     model = Net().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
 
-    scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-
-    train_list = np.array([train_set[i][0].numpy().squeeze() for i in range(len(train_set))])
-    print(train_list.max())
-    print(train_list.min())
-    raise AssertionError
-    torchvision.utils.save_image(torchvision.utils.make_grid(train_list[:16]), 'image1.jpg')
+    scheduler = StepLR(optimizer, step_size = 1, gamma = args.gamma)
 
     if not args.load_model:
+        best_epoch = 0
+        best_loss = float('inf')
         start_time = time.time()
         for epoch in range(1, args.epochs + 1):
             train(args, model, device, train_loader, optimizer, epoch)
-            test(model, device, dev_loader)
-            test(model, device, test_loader)
+            dev_loss = test(model, device, dev_loader)
             scheduler.step()
+            if dev_loss < best_loss:
+                best_loss = dev_loss
+                best_epoch = epoch
+            if args.save_model:
+                model_name = 'mnist_cnn_epoch%d.pt' % (epoch)
+                torch.save(model.state_dict(), model_name)
+            if best_epoch + 20 <= epoch:
+                print('No improvement was done in the last 20 epochs, breaking...')
+                break
         end_time = time.time()
         print('Training took %.3f seconds' % (end_time - start_time))
-        if args.save_model:
-            torch.save(model.state_dict(), "mnist_cnn.pt")
+        print('Best model was achieved on epoch %d' % best_epoch)
+        model_name = 'mnist_cnn_epoch%d.pt' % (best_epoch)
+        model.load_state_dict(torch.load(model_name))
     else:
-        model.load_state_dict(torch.load("mnist_cnn.pt"))
-        test(model, device, test_loader)
+        model.load_state_dict(torch.load(args.load_path))
+
+    print('Testing test sets...')
+    test(model, device, test1_loader)
+    test(model, device, test2_loader)
 
 
 if __name__ == '__main__':
