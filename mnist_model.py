@@ -115,9 +115,8 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     transform=transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
-        ])
+            transforms.ToTensor(),
+            ])
     dataset1 = datasets.MNIST('../data', train = True, download = True,
                        transform=transform)
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000])
@@ -133,6 +132,10 @@ def main():
     optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
 
     scheduler = StepLR(optimizer, step_size = 1, gamma = args.gamma)
+
+    train_list = np.array([train_set[i][0].numpy().squeeze() for i in range(len(train_set))])
+    print(train_list.max())
+    print(train_list.min())
 
     if not args.load_model:
         best_epoch = 0

@@ -6,10 +6,10 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 import os
 import math
-from mnist_model import Net, test
+from mnist_model import Net
 
 EPS = 0.25
-REPS  = 2
+REPS  = 6
 BATCH_SIZE = 1000
 
 def split_data(data):
@@ -49,7 +49,7 @@ def get_predictions(pictures, labels, model, device):
             if predictions is None:
                 predictions = pred.numpy()
             else:
-                precitions = np.concatenate((predictions, pred.numpy()))
+                predictions = np.concatenate((predictions, pred.numpy()))
             correct += pred.eq(y.view_as(pred)).sum().item()
     print('Accuracy: {}/{} ({:.0f}%)\n'.format(
         correct, len(pictures),
@@ -86,6 +86,25 @@ def save_data(s, a, x, path, rep):
     else:
         raise Exception("rep argument must be a positive number")
 
+def save_data_v2(s, a, x, path, rep):
+    data = np.concatenate((s, a, x), axis = 1)
+    df = pd.DataFrame(data = data)
+    if rep == 0:
+        if not os.path.isfile(path):
+            df.to_csv(path_or_buf = path + ".csv", index = False, header = ['s', 'a', 'x']) # save to csv
+        else:
+            raise Exception("File already exists")
+    elif rep > 0:
+        df.to_csv(path_or_buf = path + ".csv", index = False, header = ['s', 'a', 'x'], mode = 'a') # save to csv
+    else:
+        raise Exception("rep argument must be a positive number")
+
+def fix_arrays(actions):
+    indices = []
+    for i, picture in enumerate(actions):
+        indices += [i for action in picture]
+    return indices
+
 def get_actions():
     actions = set()
     ret = []
@@ -113,6 +132,27 @@ def add_noise(action, data):
     s_noise = s_noise * EPS
     new_data += c * s_noise    
     return new_data
+
+def noise2actions(noise):
+    actions = []
+    for picture in noise:
+        flat = picture.flatten()
+        action = []
+        for i, cell in enumerate(flat):
+            if cell > 0:
+                action.append(2 * i + 1)
+            elif cell < 0:
+                action.append(2 * i + 2)
+        actions.append(np.array(action))
+    return np.array(actions)
+
+def add_noise_v2(data):
+    new_data = data.copy()
+    s_noise = np.random.randint(-1, high = 2, size = data.shape)
+    s_noise = s_noise * EPS
+    noise_actions = noise2actions(s_noise)
+    new_data += s_noise
+    return np.clip(new_data, 0, 1), noise_actions
 
 def show_noisy_data(action, data, path):
     print(action)
@@ -159,6 +199,30 @@ def gen_data(data, path, model, device):
             total_corret, len(pictures) * len(actions),
             100. * total_corret / (len(pictures) * len(actions))))
         save_data(new_labels, len(actions), predictions, path, rep)
+
+def manual_flatten(array):
+    res = array[0]
+    for a in array[1:]:
+        res = np.concatenate((res, a))
+    return np.expand_dims(res, axis = 1)
+
+def gen_data_v2(data, path, model, device):
+    print('breaking data...')
+    pictures, labels = split_data(data)
+    total_corret = 0
+    total_examples = 0
+    print('starting loop...')
+    for rep in range(REPS):
+        print('starting repetition %d...' % (rep + 1))
+        new_pictures, actions = add_noise_v2(pictures)
+        predictions, correct = get_predictions(new_pictures, labels, model, device)
+        total_corret += correct
+        total_examples += len(new_pictures)
+        indices = fix_arrays(actions)
+        save_data_v2(np.expand_dims(labels[indices], axis = 1), manual_flatten(actions), predictions[indices], path, rep)
+    print('Accuracy: {}/{} ({:.0f}%)\n'.format(
+        total_corret, total_examples,
+        100. * total_corret / total_examples))
           
 
 def main(model_path, csv_path):
@@ -166,7 +230,6 @@ def main(model_path, csv_path):
     print('downloading dataset...')
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
     ])
     dataset = datasets.MNIST('../data', train = False, download = True,
                        transform = transform)
@@ -178,11 +241,7 @@ def main(model_path, csv_path):
     device = torch.device("cpu")
     model = Net().to(device)
     model.load_state_dict(torch.load(model_path))
-    gen_data(test_set, csv_path, model, device)
+    gen_data_v2(test_set, csv_path, model, device)
 
-main('trained_models\mnist_cnn_epoch25.pt', 'generated_data')
+main('trained_models\mnist_cnn_epoch62.pt', 'generated_data')
                         
-
-
-
-
