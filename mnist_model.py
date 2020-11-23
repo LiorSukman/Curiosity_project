@@ -11,6 +11,9 @@ from torch.optim.lr_scheduler import StepLR
 import time
 import numpy as np
 
+PATIENCE = 20
+PATH = 'trained_models\\'
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -96,7 +99,7 @@ def main():
                         help='For Saving the current Model')
     parser.add_argument('--load-model', action = 'store_true', default = False,
                         help='For Loading the Model Instead of Training')
-    parser.add_argument('--load-path', type = str, default = "trained _models/mnist_cnn.pt",
+    parser.add_argument('--load-path', type = str, default = "mnist_cnn.pt",
                         help='For Loading the Model Instead of Training')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -122,11 +125,9 @@ def main():
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000])
     dataset2 = datasets.MNIST('../data', train = False, download = True,
                        transform = transform)
-    test1_set, test2_set = torch.utils.data.random_split(dataset2, [5_000, 5_000])
     train_loader = torch.utils.data.DataLoader(train_set, **train_kwargs)
     dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
-    test1_loader = torch.utils.data.DataLoader(test1_set, **test_kwargs)
-    test2_loader = torch.utils.data.DataLoader(test2_set, **test_kwargs)
+    test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
     model = Net().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
@@ -150,22 +151,20 @@ def main():
                 best_epoch = epoch
             if args.save_model:
                 model_name = 'mnist_cnn_epoch%d.pt' % (epoch)
-                torch.save(model.state_dict(), model_name)
-            if best_epoch + 20 <= epoch:
-                print('No improvement was done in the last 20 epochs, breaking...')
+                torch.save(model.state_dict(), PATH + model_name)
+            if best_epoch + PATIENCE <= epoch:
+                print('No improvement was done in the last %d epochs, breaking...' % PATIENCE)
                 break
         end_time = time.time()
         print('Training took %.3f seconds' % (end_time - start_time))
         print('Best model was achieved on epoch %d' % best_epoch)
         model_name = 'mnist_cnn_epoch%d.pt' % (best_epoch)
-        model.load_state_dict(torch.load(model_name))
+        model.load_state_dict(torch.load(PATH + model_name))
     else:
-        model.load_state_dict(torch.load(args.load_path))
+        model.load_state_dict(torch.load(PATH + args.load_path))
 
-    print('Testing test sets...')
-    test(model, device, test1_loader)
-    test(model, device, test2_loader)
-
+    print('Testing test set...')
+    test(model, device, test_loader)
 
 if __name__ == '__main__':
     main()
