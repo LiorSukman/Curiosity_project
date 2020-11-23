@@ -55,10 +55,10 @@ def get_predictions(pictures, labels, model, device):
         100. * correct / len(pictures)))
     return predictions, correct
 
-def save_data(s, a, x, path):
+def save_data(s, a, x, path, rep):
     data = np.concatenate((s, a, x), axis = 1)
     df = pd.DataFrame(data = data)
-    if not os.path.exists(path):
+    if rep == 0:
         df.to_csv(path_or_buf = path + ".csv", index = False, header = ['s', 'a', 'x']) # save to csv
     else:
         df.to_csv(path_or_buf = path + ".csv", index = False, header = False, mode = 'a') # save to csv
@@ -84,6 +84,8 @@ def noise2actions(noise):
 
 def add_noise(data):
     new_data = data.copy()
+    print(data.shape)
+    raise AssertionError
     s_noise = np.random.randint(-1, high = 2, size = data.shape)
     s_noise = s_noise * EPS
     noise_actions = noise2actions(s_noise)
@@ -129,7 +131,7 @@ def gen_data(pictures, labels, path, model, device):
         total_corret += correct
         total_examples += len(new_pictures)
         indices = fix_arrays(actions)
-        save_data(np.expand_dims(labels[indices], axis = 1), manual_flatten(actions), predictions[indices], path)
+        save_data(np.expand_dims(labels[indices], axis = 1), manual_flatten(actions), predictions[indices], path, rep)
     print('Accuracy: {}/{} ({:.0f}%)\n'.format(
         total_corret, total_examples,
         100. * total_corret / total_examples))

@@ -6,15 +6,68 @@ from torchvision import datasets, transforms
 from mnist_model import Net
 import matplotlib.pyplot as plt
 
-EPS = [0, .05, .1, .15, .2, .25, .3]
+EPS = [0, 0.2, 0.25]#[0, .05, .1, .15, .2, .25, .3]
 BATCH_SIZE = 1
+PIC_DIM = 28
 
 # The code in this file was adapted from the notebook that can be found here:
 # https://pytorch.org/tutorials/beginner/fgsm_tutorial.html
 
-def fgsm_attack(image, epsilon, data_grad):
+def combine_grad_sign(grad):
+    new_grad = grad.detach().clone()
+    new_grad.requires_grad = False
+    partition = 4
+    for i in range(PIC_DIM // partition):
+        for j in range(PIC_DIM // partition):
+            total_0 = 0
+            total_p = 0
+            total_n = 0
+            for k in range(partition):
+                for l in range(partition):
+                    kl_grad = grad[0][0][i * partition + k][j * partition + l]
+                    total_0 += 1 if kl_grad == 0 else 0
+                    total_p += 1 if kl_grad == 1 else 0
+                    total_n += 1 if kl_grad == -1 else 0
+            sign = None
+            if max(total_0, max(total_p, total_n)) == total_0:
+                sign = 0
+            elif max(total_p, total_n) == total_p:
+                sign = 1
+            else:
+                sign = -1
+            for k in range(partition):
+                for l in range(partition):
+                    new_grad[0][0][i * partition + k][j * partition + l] = sign
+            
+    return new_grad
+
+def combine_grad_val(grad):
+    new_grad = grad.detach().clone()
+    new_grad.requires_grad = False
+    partition = 2
+    for i in range(PIC_DIM // partition):
+        for j in range(PIC_DIM // partition):
+            val = 0
+            for k in range(partition):
+                for l in range(partition):
+                    val += grad[0][0][i * partition + k][j * partition + l]
+            for k in range(partition):
+                for l in range(partition):
+                    new_grad[0][0][i * partition + k][j * partition + l] = val
+    return new_grad.sign()
+
+kinds = ['full', 'combined_sign', 'combined_val']
+
+def fgsm_attack(image, epsilon, data_grad, kind = 'full'):
+    if epsilon == 0:
+        return image
     # Collect the element-wise sign of the data gradient
-    sign_data_grad = data_grad.sign()
+    if kind == 'full':
+        sign_data_grad = data_grad.sign()
+    elif kind == 'combined_sign':
+        sign_data_grad = combine_grad_sign(data_grad.sign())
+    else:
+        sign_data_grad = combine_grad_val(data_grad)
     # Create the perturbed image by adjusting each pixel of the input image
     perturbed_image = image + epsilon * sign_data_grad
     # Adding clipping to maintain [0,1] range
@@ -58,7 +111,7 @@ def test_eps(model, device, test_loader, epsilon):
         data_grad = data.grad.data
 
         # Call FGSM Attack
-        perturbed_data = fgsm_attack(data, epsilon, data_grad)
+        perturbed_data = fgsm_attack(data, epsilon, data_grad, kind = 'combined_val')
 
         # Re-classify the perturbed image
         output = model(perturbed_data)
