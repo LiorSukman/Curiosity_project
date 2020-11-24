@@ -4,12 +4,15 @@ import numpy as np
 import scipy.stats
 
 chunksize = 200_000
+b_size = 2
+PIC_DIM = 28
 
 # read the data
-tfr = pd.read_csv('data\generated_data.csv', chunksize = chunksize)
+tfr = pd.read_csv('data\generated_data_b_size_2.csv', chunksize = chunksize)
 
 # the probability distribution: theta(x|s,a) = theta[s][a][x]
-theta = np.ones([10, 1568, 10]) / 10.0
+num_actions = 2 * (PIC_DIM ** 2) // (b_size ** 2)
+theta = np.ones([10, num_actions, 10]) / 10.0
 
 # for each line in the data
 D_KL = []

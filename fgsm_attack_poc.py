@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from mnist_model import Net
 import matplotlib.pyplot as plt
 
-EPS = [0, 0.2, 0.25]#[0, .05, .1, .15, .2, .25, .3]
+EPS = [0, .05, .1, .15, .2, .25, .3]
 BATCH_SIZE = 1
 PIC_DIM = 28
 
@@ -41,19 +41,18 @@ def combine_grad_sign(grad):
             
     return new_grad
 
+def split(array, nrows, ncols):
+    """Split a matrix into sub-matrices."""
+    return (array.reshape(1, 1, PIC_DIM // nrows, nrows, -1, ncols)
+                 .swapaxes(3, 4)
+                 .reshape(1, 1, -1, nrows, ncols))
+
 def combine_grad_val(grad):
-    new_grad = grad.detach().clone()
-    new_grad.requires_grad = False
-    partition = 2
-    for i in range(PIC_DIM // partition):
-        for j in range(PIC_DIM // partition):
-            val = 0
-            for k in range(partition):
-                for l in range(partition):
-                    val += grad[0][0][i * partition + k][j * partition + l]
-            for k in range(partition):
-                for l in range(partition):
-                    new_grad[0][0][i * partition + k][j * partition + l] = val
+    b_rows = 2
+    b_cols = 2
+    new_grad = split(grad.numpy(), b_rows, b_cols)
+    new_grad = np.average(new_grad, (3, 4)).reshape(1, 1, PIC_DIM // b_rows, PIC_DIM // b_cols)
+    new_grad = torch.from_numpy(np.repeat(np.repeat(new_grad, b_cols, axis = 3), b_rows, axis = 2))
     return new_grad.sign()
 
 kinds = ['full', 'combined_sign', 'combined_val']

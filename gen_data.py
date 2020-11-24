@@ -11,6 +11,7 @@ from mnist_model import Net
 EPS = 0.25
 REPS  = 6
 BATCH_SIZE = 1000
+PIC_DIM = 28
 
 def break_data(data):
     test_list = np.array([data[i][0].numpy() for i in range(len(data))])
@@ -82,13 +83,20 @@ def noise2actions(noise):
         actions.append(np.array(action))
     return np.array(actions)
 
-def add_noise(data):
+def add_noise(data, b_size = 1):
     new_data = data.copy()
-    print(data.shape)
-    raise AssertionError
-    s_noise = np.random.randint(-1, high = 2, size = data.shape)
-    s_noise = s_noise * EPS
-    noise_actions = noise2actions(s_noise)
+    noise_actions = None
+    if b_size == 1:
+        s_noise = np.random.randint(-1, high = 2, size = data.shape)
+        s_noise = s_noise * EPS
+        noise_actions = noise2actions(s_noise)
+    else:
+        shape = data.shape
+        noise_shape = (shape[0], shape[1], shape[2] // b_size, shape[3] // b_size)
+        s_noise = np.random.randint(-1, high = 2, size = noise_shape)
+        s_noise = s_noise * EPS
+        noise_actions = noise2actions(s_noise)
+        s_noise = np.repeat(np.repeat(s_noise, b_size, axis = 3), b_size, axis = 2)
     new_data += s_noise
     return np.clip(new_data, 0, 1), noise_actions
 
@@ -125,7 +133,7 @@ def gen_data(pictures, labels, path, model, device):
     print('starting loop...')
     for rep in range(REPS):
         print('starting repetition %d...' % (rep + 1))
-        new_pictures, actions = add_noise(pictures)
+        new_pictures, actions = add_noise(pictures, b_size = 2)
         predictions, correct = get_predictions(new_pictures, labels, model, device)
         
         total_corret += correct
@@ -167,5 +175,5 @@ def main(model_path, csv_path, indices_path):
     
     gen_data(pictures, labels, csv_path, model, device)
 
-main('trained_models\mnist_cnn_epoch62.pt', 'data\generated_data', 'data\indices.npy')
+main('trained_models\mnist_cnn_epoch62.pt', 'data\generated_data_b_size_2', 'data\indices.npy')
                         
