@@ -13,6 +13,10 @@ PIC_DIM = 28
 # The code in this file was adapted from the notebook that can be found here:
 # https://pytorch.org/tutorials/beginner/fgsm_tutorial.html
 
+"""
+This function is similar to combine_grad_val but it uses the signs instead of the gradient
+values. Hence, this approach is much slower (perhaps as a result of imperfect implementation)
+
 def combine_grad_sign(grad):
     new_grad = grad.detach().clone()
     new_grad.requires_grad = False
@@ -40,6 +44,7 @@ def combine_grad_sign(grad):
                     new_grad[0][0][i * partition + k][j * partition + l] = sign
             
     return new_grad
+"""
 
 def split(array, nrows, ncols):
     """Split a matrix into sub-matrices."""
@@ -48,12 +53,12 @@ def split(array, nrows, ncols):
                  .reshape(1, 1, -1, nrows, ncols))
 
 def combine_grad_val(grad):
-    b_rows = 2
-    b_cols = 2
+    b_rows = 2 #number of rows in block
+    b_cols = 2 #number of columns in block
     new_grad = split(grad.numpy(), b_rows, b_cols)
-    new_grad = np.average(new_grad, (3, 4)).reshape(1, 1, PIC_DIM // b_rows, PIC_DIM // b_cols)
-    new_grad = torch.from_numpy(np.repeat(np.repeat(new_grad, b_cols, axis = 3), b_rows, axis = 2))
-    return new_grad.sign()
+    new_grad = np.average(new_grad, (3, 4)).reshape(1, 1, PIC_DIM // b_rows, PIC_DIM // b_cols) #the average gradient in each block
+    new_grad = torch.from_numpy(np.repeat(np.repeat(new_grad, b_cols, axis = 3), b_rows, axis = 2)) #back to original dimensions
+    return new_grad.sign() #return sign
 
 kinds = ['full', 'combined_sign', 'combined_val']
 

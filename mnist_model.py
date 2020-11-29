@@ -106,8 +106,9 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    device = torch.device("cuda" if use_cuda else "cpu")
+    device = torch.device("cuda" if use_cuda else "cpu") #device to run the model on
 
+    #organize parsed data
     train_kwargs = {'batch_size': args.batch_size}
     test_kwargs = {'batch_size': args.test_batch_size}
     if use_cuda:
@@ -117,6 +118,7 @@ def main():
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
+    #get datasets and create loaders
     transform=transforms.Compose([
             transforms.ToTensor(),
             ])
@@ -129,38 +131,40 @@ def main():
     dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
+    #create model, initialize optimizer
     model = Net().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
 
     scheduler = StepLR(optimizer, step_size = 1, gamma = args.gamma)
 
-    train_list = np.array([train_set[i][0].numpy().squeeze() for i in range(len(train_set))])
-    print(train_list.max())
-    print(train_list.min())
+    #train_list = np.array([train_set[i][0].numpy().squeeze() for i in range(len(train_set))])
+    #print(train_list.max())
+    #print(train_list.min())
 
-    if not args.load_model:
+    if not args.load_model: #don't need to load
         best_epoch = 0
         best_loss = float('inf')
         start_time = time.time()
+        #run training
         for epoch in range(1, args.epochs + 1):
             train(args, model, device, train_loader, optimizer, epoch)
             dev_loss = test(model, device, dev_loader)
             scheduler.step()
-            if dev_loss < best_loss:
+            if dev_loss < best_loss: #found better epoch
                 best_loss = dev_loss
                 best_epoch = epoch
-            if args.save_model:
+            if args.save_model: #need to save model
                 model_name = 'mnist_cnn_epoch%d.pt' % (epoch)
                 torch.save(model.state_dict(), PATH + model_name)
-            if best_epoch + PATIENCE <= epoch:
+            if best_epoch + PATIENCE <= epoch: #no improvment in the last PATIENCE epochs
                 print('No improvement was done in the last %d epochs, breaking...' % PATIENCE)
                 break
         end_time = time.time()
         print('Training took %.3f seconds' % (end_time - start_time))
         print('Best model was achieved on epoch %d' % best_epoch)
         model_name = 'mnist_cnn_epoch%d.pt' % (best_epoch)
-        model.load_state_dict(torch.load(PATH + model_name))
-    else:
+        model.load_state_dict(torch.load(PATH + model_name)) #load model from best epoch
+    else: #need to load
         model.load_state_dict(torch.load(PATH + args.load_path))
 
     print('Testing test set...')
