@@ -12,6 +12,7 @@ EPS = 0.25 #change perturbation makes
 REPS  = 6 #repetitions of process per sample
 BATCH_SIZE = 1000 #batch-size for reprediction
 PIC_DIM = 28 #the dimensions of the samples (28 by 28)
+B_SIZE = 1
 
 def break_data(data):
     """
@@ -228,7 +229,7 @@ def gen_data(pictures, labels, path, model, device, org_cor_set):
     print('starting loop...')
     for rep in range(REPS):
         print('starting repetition %d...' % (rep + 1))
-        new_pictures, actions = add_noise(pictures, b_size = 2)
+        new_pictures, actions = add_noise(pictures, b_size = B_SIZE)
         predictions, correct, cor_set, incor_set = get_predictions(new_pictures, labels, model, device)
         total_corret += correct
         total_examples += len(new_pictures)
