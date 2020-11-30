@@ -52,25 +52,32 @@ def create_batches(pictures, labels, batch_size):
        
     return batches
 
-def get_predictions(pictures, labels, model, device):
+def get_predictions(pictures, labels, model, device, batch_size = BATCH_SIZE):
     """
     input:
     - pictures: numpy array of the pictures
     - labels: numpy array of the labels
     - model: the CNN to predict the new examples' label
     - device: torch device to use in the model while predicting
+    - batch_size: int, default = BATCH_SIZE, size of the batches
     -----
     output:
     - predictions: numpy array of the predictions of each of the samples in the pictures array
     - correct: int number of correct predictions
+    - correct_inds_set: set of indices of correctly classified examples (if used make sure to set batch_size to 1)
+    - incorrect_inds_set: set of indices of incorrectly classified examples (if used make sure to set batch_size to 1)
     """
     model.eval() #so we won't apply dropout layers
     correct = 0
-    batches = create_batches(pictures, labels, BATCH_SIZE) #create batches
+    batches = create_batches(pictures, labels, batch_size) #create batches
     predictions = None
     
+    correct_inds_set = set() #used for the alternative discussed in the appendix of the attached document, use batch_size = 1 for this
+    incorrect_inds_set = set()
+    
     with torch.no_grad():
-        for x, y in batches:
+        for i, sample in enumerate(batches):
+            x, y = sample
             x, y = x.to(device), y.to(device)
             
             #get predictions
@@ -82,13 +89,20 @@ def get_predictions(pictures, labels, model, device):
             else:
                 predictions = np.concatenate((predictions, pred.numpy()))
                 
-            correct += pred.eq(y.view_as(pred)).sum().item() #count correct predictions
+            temp = pred.eq(y.view_as(pred)).sum().item() #count correct predictions
+            correct += temp
+
+            #update sets
+            if temp == 1:
+                correct_inds_set.add(i)
+            else:
+                incorrect_inds_set.add(i)
             
     print('Accuracy: {}/{} ({:.0f}%)\n'.format(
         correct, len(pictures),
         100. * correct / len(pictures)))
     
-    return predictions, correct
+    return predictions, correct, correct_inds_set, incorrect_inds_set
 
 def save_data(s, a, x, path, rep):
     """
@@ -193,7 +207,7 @@ def manual_flatten(array):
     res = np.expand_dims(res, axis = 1)
     return res
 
-def gen_data(pictures, labels, path, model, device):
+def gen_data(pictures, labels, path, model, device, org_cor_set):
     """
     input:
     - pictures: numpy array of the pictures
@@ -201,6 +215,7 @@ def gen_data(pictures, labels, path, model, device):
     - path: path to save csv to
     - model: CNN model to predict perturbated pictures
     - device: torch device to run the model on
+    - org_cor_set: set representing the indices of correctly classified original examples
     -----
     The function creates perturbation of the pictures, repredicts them using the model
     and then saves the information to a csv file in path.
@@ -214,11 +229,15 @@ def gen_data(pictures, labels, path, model, device):
     for rep in range(REPS):
         print('starting repetition %d...' % (rep + 1))
         new_pictures, actions = add_noise(pictures, b_size = 2)
-        predictions, correct = get_predictions(new_pictures, labels, model, device)
+        predictions, correct, cor_set, incor_set = get_predictions(new_pictures, labels, model, device)
         total_corret += correct
         total_examples += len(new_pictures)
+        #uncomment the following lines for the alternative discussed in the appendix of the attached document
+        #relevant = list(incor_set.intersection(org_cor_set))
+        #labels_copy, predictions, actions = labels[relevant], predictions[relevant], actions[relevant]
         indices = fix_arrays(actions)
-        save_data(np.expand_dims(labels[indices], axis = 1), manual_flatten(actions), predictions[indices], path, rep)
+        save_data(np.expand_dims(labels[indices], axis = 1), manual_flatten(actions), predictions[indices], path, rep) #replace this line with the following if using alternative
+        #save_data(np.expand_dims(labels_copy[indices], axis = 1), manual_flatten(actions), predictions[indices], path, rep)
     print('Accuracy: {}/{} ({:.0f}%)\n'.format(
         total_corret, total_examples,
         100. * total_corret / total_examples))
@@ -227,7 +246,7 @@ def gen_data(pictures, labels, path, model, device):
 if __name__ == '__main__':
     #define paths
     model_path = 'trained_models\mnist_cnn_epoch62.pt'
-    csv_path = 'data\generated_data_b_size_2'
+    csv_path = 'data\generated_data'
     indices_path = 'data\indices.npy'
 
     #get dataset
@@ -260,6 +279,9 @@ if __name__ == '__main__':
         
     pictures, labels = pictures[:len(pictures) // 2], labels[:len(labels) // 2]
 
+    #get baseline
+    _, _, cor_set, incor_set = get_predictions(pictures, labels, model, device, batch_size = 1)
+
     #generate data
-    gen_data(pictures, labels, csv_path, model, device)
+    gen_data(pictures, labels, csv_path, model, device, cor_set)
                         
