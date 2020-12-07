@@ -19,6 +19,9 @@ from torchvision import transforms as T
 from DQN_env import Environment
 from DQN_network import DQN, LSTMDQN
 
+EPOCHS = 50
+TRAIN_SIZE = 50_000
+
 # Training
 BATCH_SIZE = 32
 
@@ -36,8 +39,8 @@ LSTM_MEMORY = 128
 # ETC Options
 TARGET_UPDATE_INTERVAL = 1000
 CHECKPOINT_INTERVAL = 5000
-PLAY_INTERVAL = 900 #basically when to evaluate?
-PLAY_REPEAT = 1
+PLAY_INTERVAL = 50000 #basically when to evaluate?
+PLAY_REPEAT = 100
 LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -47,7 +50,7 @@ parser.add_argument('--best', default = None, type = int, help = 'forcefully set
 parser.add_argument('--load_latest', dest = 'load_latest', action = 'store_true', help = 'load latest checkpoint')
 parser.add_argument('--no_load_latest', dest = 'load_latest', action = 'store_false', help = 'train from the scrach')
 parser.add_argument('--checkpoint', default = None, type = str, help = 'specify the checkpoint file name')
-parser.add_argument('--mode', dest = 'mode', default = 'play', type = str, help = '[play, train]')
+parser.add_argument('--mode', dest = 'mode', default = 'train', type = str, help = '[play, train, inspect]')
 parser.add_argument('--clip', dest = 'clip', action = 'store_true', help = 'clipping the delta between -1 and 1')
 parser.add_argument('--noclip', dest = 'clip', action = 'store_false', help = 'not clipping the delta')
 parser.add_argument('--skip_action', default = 1, type = int, help = 'Skipping actions')
@@ -102,7 +105,7 @@ class ReplayMemory(object):
         return self._available
 
 class Agent(object):
-    def __init__(self, args: argparse.Namespace, cuda = True, action_repeat: int = 1):
+    def __init__(self, args: argparse.Namespace, cuda = False, action_repeat: int = 1):
         # Init
         self.clip: bool = args.clip
         self.seed: int = args.seed
@@ -160,7 +163,7 @@ class Agent(object):
 
         if self.epsilon > random():
             # Random Action
-            sample_action = numpy.random.randint(0, self.env.action_space)
+            sample_action = np.random.randint(0, self.env.action_space)
             action = torch.LongTensor([[sample_action]])
             return action
                               
@@ -168,23 +171,23 @@ class Agent(object):
         states_variable: Variable = Variable(torch.FloatTensor(states))#.cuda())
 
         if self.mode == 'dqn':
-            states_variable.volatile = True
-            action = self.dqn(states_variable).data.cpu().max(1)[1]
+            #states_variable.volatile = True
+            action = self.dqn(states_variable).data.cpu().max(1)[1].unsqueeze(0)
         elif self.mode == 'lstm':
-            action, self.dqn_hidden_state, self.dqn_cell_state = \ #make sure the hidden states are ok
+            #make sure the hidden states are ok
+            action, self.dqn_hidden_state, self.dqn_cell_state = \
                 self.dqn(states_variable, self.train_hidden_state, self.train_cell_state)
-            action = action.data.cpu().max(1)[1]
-
+            action = action.data.cpu().max(1)[1].unsqueeze(0)
+            
         return action
 
     def get_initial_states(self):
         state = self.env.reset()
         state = self.env.get_screen()
-        states = np.stack([state for _ in range(self.action_repeat)], axis = 0)
+        states = np.stack([state], axis = 0)
 
         self._state_buffer = deque(maxlen = self.action_repeat)
-        for _ in range(self.action_repeat):
-            self._state_buffer.append(state)
+        self._state_buffer.append(state)
         return states
 
     def add_state(self, state):
@@ -199,7 +202,9 @@ class Agent(object):
         q_mean = [0., 0.]
         target_mean = [0., 0.]
 
-        while True:
+        for i in range(EPOCHS * TRAIN_SIZE):
+            if i % TRAIN_SIZE == 0:
+                print('starting epoch', i // TRAIN_SIZE)
             # Init LSTM States
             if self.mode == 'lstm':
                 # For Training
@@ -210,7 +215,6 @@ class Agent(object):
             losses = []
             checkpoint_flag = False
             target_update_flag = False
-            play_flag = False
             play_steps = 0
             real_play_count = 0
             real_score = 0
@@ -221,13 +225,9 @@ class Agent(object):
                 # Get Action
                 action: torch.LongTensor = self.select_action(states)
 
-                for _ in range(self.frame_skipping):
-                    observation, reward, done = self.env.step(action[0, 0])
-                    next_state = self.env.get_screen()
-                    self.add_state(next_state)
-
-                    if done:
-                        break
+                observation, reward, done = self.env.step(action[0, 0])
+                next_state = self.env.get_screen()
+                self.add_state(next_state)
 
                 # Store the infomation in Replay Memory
                 next_states = self.recent_states()
@@ -242,7 +242,7 @@ class Agent(object):
                 # Optimize
                 if self.replay.is_available():
                     loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
-                    losses.append(loss[0])
+                    losses.append(loss)
 
                 if done:
                     break
@@ -256,19 +256,20 @@ class Agent(object):
                     self._target_update()
                     target_update_flag = True
 
-                # Checkpoint
+                # Checkpoint - uncomment if want to save each CHECKPOINT_INTERVAL (o/w saves when model improves)
                 # if self.step % CHECKPOINT_INTERVAL == 0:
                 #     self.save_checkpoint(filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.step}.pth.tar')
                 #     checkpoint_flag = True
 
                 # Play
                 if self.step % PLAY_INTERVAL == 0:
-                    play_flag = True
 
+                    self.env.set_mode('eval')
+                    
                     scores = []
                     counts = []
                     for _ in range(PLAY_REPEAT):
-                        score, real_play_count = self.play(logging = False, human = False)
+                        score, real_play_count = self.play(logging = False)
                         scores.append(score)
                         counts.append(real_play_count)
                         logger.debug(f'[{self.step}] [Validation] play_score: {score}, play_count: {real_play_count}')
@@ -282,10 +283,9 @@ class Agent(object):
                         self.save_checkpoint(
                             filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_score}.pth.tar')
 
-            # Play
-            if play_flag:
-                play_flag = False
-                logger.info(f'[{self.step}] [Validation] mean_score: {real_score}, mean_play_count: {real_play_count}')
+                    logger.info(f'[{self.step}] [Validation] mean_score: {real_score}, mean_play_count: {real_play_count}')
+
+                    self.env.set_mode('train')
 
             # Logging
             mean_loss = np.mean(losses)
@@ -309,20 +309,20 @@ class Agent(object):
         transitions = self.replay.sample(BATCH_SIZE)
 
         # Mask
-        non_final_mask = torch.ByteTensor(list(map(lambda ns: ns is not None, transitions.next_state))).cuda()
+        non_final_mask = torch.ByteTensor(list(map(lambda ns: ns is not None, transitions.next_state)))#.cuda()
         final_mask = 1 - non_final_mask
 
         state_batch: Variable = Variable(torch.cat(transitions.state))#.cuda())
         action_batch: Variable = Variable(torch.cat(transitions.action))#.cuda())
         reward_batch: Variable = Variable(torch.cat(transitions.reward))#.cuda())
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]))#.cuda())
-        non_final_next_state_batch.volatile = True
+        #non_final_next_state_batch.volatile = True
 
         # Reshape States and Next States
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
-        non_final_next_state_batch.volatile = True
+        #non_final_next_state_batch.volatile = True
 
         # Clipping Reward between -1 and 1
         #reward_batch.data.clamp_(-1, 1) #consider adding some clamping
@@ -345,20 +345,20 @@ class Agent(object):
                                                                                         self.target_hidden_state,
                                                                                         self.target_cell_state)
 
-        target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
-        target_values[final_mask] = reward_batch[final_mask].detach()
+        target_values[non_final_mask] = reward_batch.unsqueeze(1)[non_final_mask] + (target_pred.max(1)[0] * gamma).unsqueeze(1)
+        target_values[final_mask] = reward_batch[final_mask].unsqueeze(1).detach()
 
         loss = F.smooth_l1_loss(q_values, target_values) #consider l2 loss (mean or sum)
 
         self.optimizer.zero_grad()
-        loss.backward(retain_variables = True)
+        loss.backward(retain_graph = True)
 
         if self.clip:
             for param in self.dqn.parameters():
                 param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-        reward_score = int(torch.sum(reward_batch).data.cpu().numpy()[0])
+        reward_score = int(torch.sum(reward_batch).data.cpu().numpy())
         q_mean = torch.sum(q_pred, 0).data.cpu().numpy()[0]
         target_mean = torch.sum(target_pred, 0).data.cpu().numpy()[0]
 
@@ -383,7 +383,7 @@ class Agent(object):
         }
         torch.save(checkpoint, filename)
 
-    def load_checkpoint(self, filename = 'dqn_checkpoints/checkpoint.pth.tar', epsilon = None):
+    def load_checkpoint(self, filename = '/trained_models/dqn_checkpoints/checkpoint.pth.tar', epsilon = None):
         checkpoint = torch.load(filename)
         self.dqn.load_state_dict(checkpoint['dqn'])
         self.target.load_state_dict(checkpoint['target'])
@@ -399,44 +399,39 @@ class Agent(object):
 
         if files:
             files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
-            files = sorted(files, key=lambda x: x[0])
+            files = sorted(files, key = lambda x: x[0])
             latest_file = files[-1][1]
             self.load_checkpoint(latest_file, epsilon=epsilon)
             print(f'latest checkpoint has been loaded - {latest_file}')
         else:
             print('no latest checkpoint')
 
-    def play(self, logging = True, human = True):
+    def play(self, logging = True):
         #TODO change references to self.game
-        observation = self.env.game.reset()
+        #TODO: add support to cuda if wanted
         states = self.get_initial_states()
         count = 0
         total_score = 0
-
-        self.env.game.seed(self.seed)
 
         if self.mode == 'lstm':
             self.test_hidden_state, self.test_cell_state = self.dqn.reset_states(self.test_hidden_state,
                                                                                  self.test_cell_state)
 
         while True:
-            # screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-            states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+            states_variable: Variable = Variable(torch.FloatTensor(states))#.cuda())
 
             if self.mode == 'dqn':
                 dqn_pred = self.dqn(states_variable)
             elif self.mode == 'lstm':
-                dqn_pred, self.dqn_hidden_state, self.dqn_cell_state = \
+                dqn_pred, self.test_hidden_state, self.test_cell_state = \
                     self.dqn(states_variable, self.test_hidden_state, self.test_cell_state)
 
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
             for _ in range(self.frame_skipping):
-                if human:
-                    screen = self.env.game.render(mode='human')
-                observation, reward, done, info = self.env.step(action)
+                observation, reward, done = self.env.step(action)
                 # States <- Next States
                 next_state = self.env.get_screen()
                 self.add_state(next_state)

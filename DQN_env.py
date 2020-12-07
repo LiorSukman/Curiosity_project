@@ -1,4 +1,5 @@
-import namedtuple
+from collections import namedtuple
+import numpy as np
 import torch
 import torchvision
 from torchvision import datasets, transforms
@@ -9,6 +10,8 @@ SUCCESS_R = 100
 FAIL_R = -1
 
 modes = ['train', 'eval', 'test']
+
+Observation = namedtuple('Observation',['image', 'label'])
 
 class Environment(object):
     #TODO add support to cuda if wanted
@@ -46,13 +49,15 @@ class Environment(object):
         self.dev_iterator = iter(self.dev_loader)
         self.test_iterator = iter(self.test_loader)
     
-        self.cur_obs = namedtuple('image', 'label')
+        self.cur_obs = Observation(None, None)
 
         self.width = MNIST_PIC_DIM
         self.height = MNIST_PIC_DIM
         self.block_size = block_size
         self.eps = epsilon
 
+        device = torch.device("cuda" if use_cuda else "cpu")
+        
         self.cnn = Net().to(device)
         self.cnn.load_state_dict(torch.load(cnn_path))
         for param in self.cnn.parameters():
@@ -60,7 +65,7 @@ class Environment(object):
         self.cnn.eval()
 
     def get_screen(self):
-        return return self.cur_obs.image
+        return self.cur_obs.image
 
     def step(self, action: int):
         observation, reward, done = self.act(action)
@@ -90,7 +95,12 @@ class Environment(object):
                 self.test_iterator = iter(self.test_loader)
                 data, target = next(self.test_iterator)
 
-        self.cur_obs = data[0], target[0]#maybe this 0 will do problems but if removed probably need to be changes in other references to the cur_obs
+        target = target.item()
+
+        if torch.argmax(self.cnn(data)) != target:
+            return self.reset()
+
+        self.cur_obs = Observation(data.numpy(), target)#maybe this 0 will do problems but if removed probably need to be changes in other references to the cur_obs
 
         return self.cur_obs.image
 
@@ -100,12 +110,14 @@ class Environment(object):
         pixel = action // 2
         x, y = pixel // self.height, pixel % self.width
         org_label = self.cur_obs.label
-        self.cur_obs.image[x][y] = torch.clamp(self.cur_obs.image[x][y] + sign * self.eps, 0, 1) #will it work, will it not, a mistery
-        self.cur_obs.label = torch.argmax(self.cnn(self.cur_obs.image))
+        self.cur_obs.image[0, 0][x][y] = np.clip(self.cur_obs.image[0, 0][x][y] + sign * self.eps, 0, 1) #will it work, will it not, a mistery
+        new_label = torch.argmax(self.cnn(torch.FloatTensor(self.cur_obs.image))).item()
 
+        self.cur_obs = Observation(self.cur_obs.image, new_label)
+        
         reward = SUCCESS_R if self.cur_obs.label != org_label else FAIL_R
 
-        return cur_obs.image, reward, self.cur_obs.label == org_label
+        return self.cur_obs.image, reward, self.cur_obs.label != org_label
 
     def set_mode(self, mode):
         assert mode in modes
