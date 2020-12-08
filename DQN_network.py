@@ -9,19 +9,19 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(1, 32, kernel_size = 7, stride = 1, padding = 0)  # (In Channel, Out Channel, ...) #maybe to large of a kernel and stride
-        self.conv2 = nn.Conv2d(32, 64, kernel_size = 4, stride = 1, padding = 0)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = 0)
-
-        self.affine1 = nn.Linear(18496, 4096) #might need to change input size 
-        self.affine2 = nn.Linear(4096, self.n_action) #maybe something larger than 512 as we have a lot of actions
+        self.conv1 = nn.Conv2d(1, 8, kernel_size = 7, stride = 1, padding = 0)  # (In Channel, Out Channel, ...) #maybe to large of a kernel and stride
+        self.conv2 = nn.Conv2d(8, 16, kernel_size = 4, stride = 1, padding = 0)
+        
+        self.affine1 = nn.Linear(5776, 2048) #might need to change input size 
+        self.affine2 = nn.Linear(2048 + self.n_action, self.n_action) 
 
     def forward(self, x):
-        h = F.relu(self.conv1(x))
+        images, actions = x
+        h = F.relu(self.conv1(images))
         h = F.relu(self.conv2(h))
-        h = F.relu(self.conv3(h))
 
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        h = torch.cat((h, actions), dim = 1)
         h = self.affine2(h)
         return h
 

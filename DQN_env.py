@@ -11,7 +11,7 @@ FAIL_R = -1
 
 modes = ['train', 'eval', 'test']
 
-Observation = namedtuple('Observation',['image', 'label'])
+Observation = namedtuple('Observation',['image', 'cur_label', 'org_label', 'actions'])
 
 class Environment(object):
     #TODO add support to cuda if wanted
@@ -49,7 +49,7 @@ class Environment(object):
         self.dev_iterator = iter(self.dev_loader)
         self.test_iterator = iter(self.test_loader)
     
-        self.cur_obs = Observation(None, None)
+        self.cur_obs = Observation(None, None, None, None)
 
         self.width = MNIST_PIC_DIM
         self.height = MNIST_PIC_DIM
@@ -65,7 +65,7 @@ class Environment(object):
         self.cnn.eval()
 
     def get_screen(self):
-        return self.cur_obs.image
+        return (self.cur_obs.image, self.cur_obs.actions)
 
     def step(self, action: int):
         observation, reward, done = self.act(action)
@@ -100,24 +100,34 @@ class Environment(object):
         if torch.argmax(self.cnn(data)) != target:
             return self.reset()
 
-        self.cur_obs = Observation(data.numpy(), target)#maybe this 0 will do problems but if removed probably need to be changes in other references to the cur_obs
+        self.cur_obs = Observation(data.numpy(), target, target, np.zeros(self.action_space))
 
-        return self.cur_obs.image
+        return (self.cur_obs.image, self.cur_obs.actions)
 
     def act(self, action: int):
         #TODO adapt to block_size != 1
+        if action == self.action_space - 1: #reward 0 might cause choosing only the terminating action
+            self.cur_obs.actions[-1] = 1
+            return self.cur_obs.image, 0, True
+        
+        repeated_action = False
+        if action != self.action_space - 1:
+            if self.cur_obs.actions[2 * (action // 2)] == 1 or self.cur_obs.actions[2 * (action // 2) + 1] == 1:
+               repeated_action = True 
+            self.cur_obs.actions[2 * (action // 2)] = self.cur_obs.actions[2 * (action // 2) + 1] = 1
+        
+        correct_label = self.cur_obs.cur_label == self.cur_obs.org_label
         sign = 1 if action % 2 == 0 else -1
         pixel = action // 2
         x, y = pixel // self.height, pixel % self.width
-        org_label = self.cur_obs.label
-        self.cur_obs.image[0, 0][x][y] = np.clip(self.cur_obs.image[0, 0][x][y] + sign * self.eps, 0, 1) #will it work, will it not, a mistery
+        self.cur_obs.image[0, 0][x][y] = np.clip(self.cur_obs.image[0, 0][x][y] + sign * self.eps, 0, 1)
         new_label = torch.argmax(self.cnn(torch.FloatTensor(self.cur_obs.image))).item()
 
-        self.cur_obs = Observation(self.cur_obs.image, new_label)
+        self.cur_obs = Observation(self.cur_obs.image, new_label, self.cur_obs.org_label, self.cur_obs.actions)
         
-        reward = SUCCESS_R if self.cur_obs.label != org_label else FAIL_R
-
-        return self.cur_obs.image, reward, self.cur_obs.label != org_label
+        reward = SUCCESS_R if self.cur_obs.cur_label != self.cur_obs.org_label and correct_label and not repeated_action else FAIL_R
+        
+        return (self.cur_obs.image, self.cur_obs.actions), reward, repeated_action 
 
     def set_mode(self, mode):
         assert mode in modes
@@ -125,4 +135,4 @@ class Environment(object):
 
     @property
     def action_space(self):
-        return 2 * self.width * self.height // (self.block_size ** 2)
+        return 2 * self.width * self.height // (self.block_size ** 2) + 1

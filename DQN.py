@@ -26,7 +26,7 @@ TRAIN_SIZE = 50_000
 BATCH_SIZE = 32
 
 # Replay Memory
-REPLAY_MEMORY = 5000 #was 50000 consider changing
+REPLAY_MEMORY = 10000 #was 50000 consider changing
 
 # Epsilon - exploratory behavior
 EPSILON_START = 1.0
@@ -39,8 +39,8 @@ LSTM_MEMORY = 128
 # ETC Options
 TARGET_UPDATE_INTERVAL = 1000
 CHECKPOINT_INTERVAL = 5000
-PLAY_INTERVAL = 50000 #basically when to evaluate?
-PLAY_REPEAT = 100
+PLAY_INTERVAL = 50000 #basically when to evaluate
+PLAY_REPEAT = 100 #how many times to evaluate
 LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -82,10 +82,10 @@ class ReplayMemory(object):
         self._available = False
 
     def put(self, state: np.array, action: torch.LongTensor, reward: np.array, next_state: np.array): #why arrays?
-        state = torch.FloatTensor(state)
+        state = (torch.FloatTensor(state[0, 0]), torch.FloatTensor(state[0, 1]))
         reward = torch.FloatTensor([reward])
         if next_state is not None:
-            next_state = torch.FloatTensor(next_state)
+            next_state = (torch.FloatTensor(next_state[0, 0]), torch.FloatTensor(next_state[0, 1]))
         transition = self.Transition(state = state, action = action, reward = reward, next_state = next_state)
         self.memory.append(transition)
 
@@ -156,19 +156,20 @@ class Agent(object):
 
     def select_action(self, states: np.array) -> tuple:
         #TODO: adapt if want to use cuda
-
         # Decrease epsilon value
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
                                      math.exp(-1. * self.step / EPSILON_DECAY)
 
         if self.epsilon > random():
             # Random Action
-            sample_action = np.random.randint(0, self.env.action_space)
+            available_actions = states[0, 1] == 0
+            sample_action = np.random.randint(0, np.count_nonzero(available_actions))
+            sample_action = available_actions.nonzero()[0][sample_action]
             action = torch.LongTensor([[sample_action]])
             return action
-                              
-        states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-        states_variable: Variable = Variable(torch.FloatTensor(states))#.cuda())
+        actions = states[0][1].reshape(1, -1) #assumes self.action_repeat = 1
+        states = states[0][0].reshape(1, self.action_repeat, self.env.width, self.env.height)
+        states_variable: (Variable, Variable) = (Variable(torch.FloatTensor(states)), Variable(torch.FloatTensor(actions)))#.cuda())
 
         if self.mode == 'dqn':
             #states_variable.volatile = True
@@ -205,6 +206,7 @@ class Agent(object):
         for i in range(EPOCHS * TRAIN_SIZE):
             if i % TRAIN_SIZE == 0:
                 print('starting epoch', i // TRAIN_SIZE)
+            print('starting example', i)
             # Init LSTM States
             if self.mode == 'lstm':
                 # For Training
@@ -251,6 +253,9 @@ class Agent(object):
                 self.step += 1
                 play_steps += 1
 
+                if self.step % 100 == 0:
+                    print('step:', self.step)
+
                 # Target Update
                 if self.step % TARGET_UPDATE_INTERVAL == 0:
                     self._target_update()
@@ -292,9 +297,10 @@ class Agent(object):
             target_update_msg = '  [target updated]' if target_update_flag else ''
             # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
-                        f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
-                        f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                         f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
+                        #f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+                        #f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
+                        
 
     def optimize(self, gamma: float):
         #TODO: adapt to cuda if wanted
@@ -312,16 +318,23 @@ class Agent(object):
         non_final_mask = torch.ByteTensor(list(map(lambda ns: ns is not None, transitions.next_state)))#.cuda()
         final_mask = 1 - non_final_mask
 
-        state_batch: Variable = Variable(torch.cat(transitions.state))#.cuda())
+        state_batch: Variable = Variable(torch.cat([ns[0] for ns in transitions.state]))#.cuda())
+        state_actions_batch: Variable = Variable(torch.cat([ns[1] for ns in transitions.state]))
         action_batch: Variable = Variable(torch.cat(transitions.action))#.cuda())
         reward_batch: Variable = Variable(torch.cat(transitions.reward))#.cuda())
-        non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]))#.cuda())
+        non_final_next_state_batch = Variable(torch.cat([ns[0] for ns in transitions.next_state if ns is not None]))#.cuda())
+        non_final_next_state_action_batch = Variable(torch.cat([ns[1] for ns in transitions.next_state if ns is not None]))
         #non_final_next_state_batch.volatile = True
 
         # Reshape States and Next States
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
+        state_actions_batch = state_actions_batch.view([BATCH_SIZE, self.env.action_space]) #assumes self.action_repeat = 1
+        state_batch = (state_batch, state_actions_batch)
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
+        non_final_next_state_action_batch = non_final_next_state_action_batch.view(
+            [-1, self.env.action_space]) #assumes self.action_repeat = 1
+        non_final_next_state_batch = (non_final_next_state_batch, non_final_next_state_action_batch)
         #non_final_next_state_batch.volatile = True
 
         # Clipping Reward between -1 and 1
@@ -359,8 +372,9 @@ class Agent(object):
         self.optimizer.step()
 
         reward_score = int(torch.sum(reward_batch).data.cpu().numpy())
-        q_mean = torch.sum(q_pred, 0).data.cpu().numpy()[0]
-        target_mean = torch.sum(target_pred, 0).data.cpu().numpy()[0]
+        q_mean = torch.sum(q_pred, 0).data.cpu().numpy()
+        target_mean = torch.sum(target_pred, 0).data.cpu().numpy()
+
 
         return loss.data.cpu().numpy(), reward_score, q_mean, target_mean
 
