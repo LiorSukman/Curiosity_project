@@ -6,8 +6,9 @@ from torchvision import datasets, transforms
 from mnist_model import Net
 
 MNIST_PIC_DIM = 28
-SUCCESS_R = 100
-FAIL_R = -1
+SUCCESS_R = 1000
+FINISH_R = -500
+STEP_R = 0
 
 modes = ['train', 'eval', 'test']
 
@@ -108,7 +109,7 @@ class Environment(object):
         #TODO adapt to block_size != 1
         if action == self.action_space - 1: #reward 0 might cause choosing only the terminating action
             self.cur_obs.actions[-1] = 1
-            return self.cur_obs.image, 0, True
+            return self.cur_obs.image, FINISH_R, True
         
         repeated_action = False
         if action != self.action_space - 1:
@@ -118,16 +119,26 @@ class Environment(object):
         
         correct_label = self.cur_obs.cur_label == self.cur_obs.org_label
         sign = 1 if action % 2 == 0 else -1
+
         pixel = action // 2
-        x, y = pixel // self.height, pixel % self.width
-        self.cur_obs.image[0, 0][x][y] = np.clip(self.cur_obs.image[0, 0][x][y] + sign * self.eps, 0, 1)
-        new_label = torch.argmax(self.cnn(torch.FloatTensor(self.cur_obs.image))).item()
+        x, y = pixel // (self.height // self.block_size), pixel % (self.width // self.block_size)
+        for i in range(self.block_size):
+            for j in range(self.block_size):
+                self.cur_obs.image[0, 0][x + i][y + j] = np.clip(self.cur_obs.image[0, 0][x + i][y + j] + sign * self.eps, 0, 1)
+
+        pred = torch.exp(self.cnn(torch.FloatTensor(self.cur_obs.image))[0])
+        new_label = torch.argmax(pred).item()
+        new_label = new_label if correct_label else self.cur_obs.cur_label
 
         self.cur_obs = Observation(self.cur_obs.image, new_label, self.cur_obs.org_label, self.cur_obs.actions)
         
-        reward = SUCCESS_R if self.cur_obs.cur_label != self.cur_obs.org_label and correct_label and not repeated_action else FAIL_R
+        reward = 1 / pred[self.cur_obs.org_label].item() - 1
+        reward = SUCCESS_R if self.cur_obs.cur_label != self.cur_obs.org_label and correct_label else reward
+        reward = FINISH_R if repeated_action else reward
+
+        print(reward)
         
-        return (self.cur_obs.image, self.cur_obs.actions), reward, repeated_action 
+        return (self.cur_obs.image, self.cur_obs.actions), reward, repeated_action
 
     def set_mode(self, mode):
         assert mode in modes

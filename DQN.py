@@ -23,7 +23,7 @@ EPOCHS = 50
 TRAIN_SIZE = 50_000
 
 # Training
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 
 # Replay Memory
 REPLAY_MEMORY = 10000 #was 50000 consider changing
@@ -31,7 +31,7 @@ REPLAY_MEMORY = 10000 #was 50000 consider changing
 # Epsilon - exploratory behavior
 EPSILON_START = 1.0
 EPSILON_END = 0.01
-EPSILON_DECAY = 100000
+EPSILON_DECAY = 1_000_000
 
 # LSTM Memory
 LSTM_MEMORY = 128
@@ -39,8 +39,8 @@ LSTM_MEMORY = 128
 # ETC Options
 TARGET_UPDATE_INTERVAL = 1000
 CHECKPOINT_INTERVAL = 5000
-PLAY_INTERVAL = 50000 #basically when to evaluate
-PLAY_REPEAT = 100 #how many times to evaluate
+PLAY_INTERVAL = 5000 #basically when to evaluate
+PLAY_REPEAT = 1000 #how many times to evaluate
 LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -117,7 +117,7 @@ class Agent(object):
         self.best_count = 0
 
         # Environment
-        self.env = Environment(seed = self.seed)
+        self.env = Environment(seed = self.seed, block_size = 2)
 
         # DQN Model
         self.dqn_hidden_state = self.dqn_cell_state = None
@@ -206,7 +206,7 @@ class Agent(object):
         for i in range(EPOCHS * TRAIN_SIZE):
             if i % TRAIN_SIZE == 0:
                 print('starting epoch', i // TRAIN_SIZE)
-            print('starting example', i)
+            
             # Init LSTM States
             if self.mode == 'lstm':
                 # For Training
@@ -222,14 +222,17 @@ class Agent(object):
             real_score = 0
 
             reward = 0
+            reward_sum = 0
             done = False
             while True:
                 # Get Action
                 action: torch.LongTensor = self.select_action(states)
-
+                
                 observation, reward, done = self.env.step(action[0, 0])
                 next_state = self.env.get_screen()
                 self.add_state(next_state)
+
+                reward_sum += reward
 
                 # Store the infomation in Replay Memory
                 next_states = self.recent_states()
@@ -243,7 +246,8 @@ class Agent(object):
 
                 # Optimize
                 if self.replay.is_available():
-                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
+                    #loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
+                    loss, _, _, _ = self.optimize(gamma)
                     losses.append(loss)
 
                 if done:
@@ -292,13 +296,15 @@ class Agent(object):
 
                     self.env.set_mode('train')
 
+            print('finished example %d in %d steps with total reward of %d' % (i + 1, play_steps, reward_sum))
+
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
-                        f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
-                        #f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+            logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '
+                        f'Epsilon:{self.epsilon:<6.4}{target_update_msg}    '
+                        f'RewardSum:{reward_sum:<3}') # Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
                         #f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                         
 
@@ -433,8 +439,9 @@ class Agent(object):
 
         while True:
 
-            states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-            states_variable: Variable = Variable(torch.FloatTensor(states))#.cuda())
+            actions = states[0][1].reshape(1, -1) #assumes self.action_repeat = 1
+            states = states[0][0].reshape(1, self.action_repeat, self.env.width, self.env.height)
+            states_variable: (Variable, Variable) = (Variable(torch.FloatTensor(states)), Variable(torch.FloatTensor(actions)))#.cuda())
 
             if self.mode == 'dqn':
                 dqn_pred = self.dqn(states_variable)
@@ -442,7 +449,7 @@ class Agent(object):
                 dqn_pred, self.test_hidden_state, self.test_cell_state = \
                     self.dqn(states_variable, self.test_hidden_state, self.test_cell_state)
 
-            action = dqn_pred.data.cpu().max(1)[1][0, 0]
+            action = dqn_pred.data.cpu().max(1)[1].unsqueeze(0)
 
             for _ in range(self.frame_skipping):
                 observation, reward, done = self.env.step(action)
@@ -464,7 +471,6 @@ class Agent(object):
 
             if done:
                 break
-        self.env.game.close()
         return total_score, count
 
     def inspect(self):
