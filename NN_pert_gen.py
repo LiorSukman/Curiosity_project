@@ -19,7 +19,7 @@ EPS = 0.25
 
 def custom_loss(output, target, cnn):
     preds = cnn(output)
-    loss = -F.nll_loss(preds, target, reduction = 'sum')
+    loss = 10_000 / F.nll_loss(preds, target, reduction = 'sum')
     return loss
 
 class PGEN_NN(nn.Module):
@@ -29,7 +29,7 @@ class PGEN_NN(nn.Module):
         self.dropout1 = nn.Dropout(0.25)
         self.dropout2 = nn.Dropout(0.5)
         self.fc1 = nn.Linear(2704, 1024)
-        self.fc2 = nn.Linear(1024, 784) #1568, 1
+        self.fc2 = nn.Linear(1024, 784)
         
     def forward(self, x):
         org = x
@@ -44,6 +44,21 @@ class PGEN_NN(nn.Module):
         x = self.fc2(x)
         x = torch.reshape(x, (-1, 1, PIC_DIM, PIC_DIM))
         output = torch.clamp(torch.tanh(x) * EPS + org, 0, 1)
+        return output
+
+    def generate(self, x):
+        org = x
+        x = self.conv1(x) #16,26,26
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2) #16,13,13
+        x = self.dropout1(x)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.dropout2(x)
+        x = self.fc2(x)
+        x = torch.reshape(x, (-1, 1, PIC_DIM, PIC_DIM))
+        output = torch.clamp(torch.sign(torch.tanh(x)) * EPS + org, 0, 1)
         return output
 
 
@@ -71,7 +86,7 @@ def test(model, device, test_loader, cnn):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
+            output = model.generate(data)
             test_loss += custom_loss(output, target, cnn) # F.nll_loss(output, target, reduction = 'sum').item()  # sum up batch loss
             output = cnn(output)
             pred = output.argmax(dim = 1, keepdim = True)  # get the index of the max log-probability
@@ -111,7 +126,7 @@ def main():
                         help='For Saving the current Model')
     parser.add_argument('--load-model', action = 'store_true', default = False,
                         help='For Loading the Model Instead of Training')
-    parser.add_argument('--load-path', type = str, default = "mnist_cnn.pt",
+    parser.add_argument('--load-path', type = str, default = "pgen_nn_epoch9.pt",
                         help='For Loading the Model Instead of Training')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -134,15 +149,7 @@ def main():
     transform=transforms.Compose([
             transforms.ToTensor(),
             ])
-    """
-    test_dataset = datasets.MNIST('../data', train = False, download = True,
-                       transform=transform)
-    train_set, dev_set, test_set = torch.utils.data.random_split(test_dataset, [6000, 2000, 2000])
-
-    train_loader = torch.utils.data.DataLoader(train_set, **train_kwargs)
-    dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
-    test_loader = torch.utils.data.DataLoader(test_set, **test_kwargs)
-    """
+    
     dataset1 = datasets.MNIST('../data', train = True, download = True,
                        transform=transform)
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000])
