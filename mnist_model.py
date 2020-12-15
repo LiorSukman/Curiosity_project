@@ -119,11 +119,11 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     #get datasets and create loaders
-    transform=transforms.Compose([
+    transform = transforms.Compose([
             transforms.ToTensor(),
             ])
     dataset1 = datasets.MNIST('../data', train = True, download = True,
-                       transform=transform)
+                       transform = transform)
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000])
     dataset2 = datasets.MNIST('../data', train = False, download = True,
                        transform = transform)
