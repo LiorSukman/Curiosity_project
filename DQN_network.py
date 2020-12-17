@@ -9,20 +9,40 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
+        self.conv1 = nn.Conv2d(1, 16, 3, 1)
+        #self.dropout1 = nn.Dropout(0.25)
+        #self.dropout2 = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(2704, 1024)
+        self.fc2 = nn.Linear(1024 + self.n_action, self.n_action)
+
+        """
         self.conv1 = nn.Conv2d(1, 8, kernel_size = 7, stride = 1, padding = 0)  # (In Channel, Out Channel, ...) #maybe to large of a kernel and stride
         self.conv2 = nn.Conv2d(8, 16, kernel_size = 4, stride = 1, padding = 0)
         
         self.affine1 = nn.Linear(5776, 2048) #might need to change input size 
-        self.affine2 = nn.Linear(2048 + self.n_action, self.n_action) 
+        self.affine2 = nn.Linear(2048 + self.n_action, self.n_action)
+        """
 
     def forward(self, x):
         images, actions = x
+        """
         h = F.relu(self.conv1(images))
         h = F.relu(self.conv2(h))
 
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
         h = torch.cat((h, actions), dim = 1)
         h = self.affine2(h)
+        """
+        h = self.conv1(images)
+        h = F.relu(h)
+        h = F.max_pool2d(h, 2)
+        #x = self.dropout1(x)
+        h = torch.flatten(h, 1)
+        h = self.fc1(h)
+        h = F.relu(h)
+        #x = self.dropout2(x)
+        h = torch.cat((h, actions), dim = 1)
+        h = self.fc2(h)
         return h
 
 

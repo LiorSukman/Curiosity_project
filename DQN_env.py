@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from mnist_model import Net
 
 MNIST_PIC_DIM = 28
-SUCCESS_R = 1000
+SUCCESS_R = 10_000
 FINISH_R = -500
 STEP_R = 0
 
@@ -106,7 +106,6 @@ class Environment(object):
         return (self.cur_obs.image, self.cur_obs.actions)
 
     def act(self, action: int):
-        #TODO adapt to block_size != 1
         if action == self.action_space - 1: #reward 0 might cause choosing only the terminating action
             self.cur_obs.actions[-1] = 1
             return self.cur_obs.image, FINISH_R, True
@@ -132,11 +131,9 @@ class Environment(object):
 
         self.cur_obs = Observation(self.cur_obs.image, new_label, self.cur_obs.org_label, self.cur_obs.actions)
         
-        reward = 1 / pred[self.cur_obs.org_label].item() - 1
+        reward = 1000 * (1 / pred[self.cur_obs.org_label].item() - 1)
         reward = SUCCESS_R if self.cur_obs.cur_label != self.cur_obs.org_label and correct_label else reward
         reward = FINISH_R if repeated_action else reward
-
-        print(reward)
         
         return (self.cur_obs.image, self.cur_obs.actions), reward, repeated_action
 

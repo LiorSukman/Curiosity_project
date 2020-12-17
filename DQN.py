@@ -1,3 +1,5 @@
+#this model is based on the code from https://github.com/AndersonJo/dqn-pytorch/blob/master/dqn.py
+
 import argparse
 import copy
 import glob
@@ -31,7 +33,7 @@ REPLAY_MEMORY = 10000 #was 50000 consider changing
 # Epsilon - exploratory behavior
 EPSILON_START = 1.0
 EPSILON_END = 0.01
-EPSILON_DECAY = 1_000_000
+EPSILON_DECAY = 100_000
 
 # LSTM Memory
 LSTM_MEMORY = 128
@@ -197,7 +199,7 @@ class Agent(object):
     def recent_states(self):
         return np.array(self._state_buffer)
 
-    def train(self, gamma: float = 0.95):
+    def train(self, gamma: float = 0.99):
         # Initial States
         reward_sum = 0.
         q_mean = [0., 0.]
