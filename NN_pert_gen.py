@@ -1,4 +1,3 @@
-from __future__ import print_function
 import argparse
 import torch
 from torch.utils.data import Dataset
@@ -7,7 +6,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 from torchvision import datasets, transforms
-from torch.optim.lr_scheduler import StepLR
 import time
 import numpy as np
 from mnist_model import Net
@@ -169,8 +167,6 @@ def main():
     model = PGEN_NN()
     optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
 
-    scheduler = StepLR(optimizer, step_size = 1, gamma = args.gamma)
-
     if not args.load_model: #don't need to load
         best_epoch = 0
         best_loss = float('inf')
@@ -179,7 +175,6 @@ def main():
         for epoch in range(1, args.epochs + 1):
             train(args, model, device, train_loader, optimizer, epoch, cnn)
             dev_loss = test(model, device, dev_loader, cnn)
-            scheduler.step()
             if dev_loss < best_loss: #found better epoch
                 best_loss = dev_loss
                 best_epoch = epoch
