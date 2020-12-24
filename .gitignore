@@ -1,4 +1,5 @@
 .git
+**/.idea
 **/__pycache__
 **/data
 **/illustrations_and_results
