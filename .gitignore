@@ -1,5 +1,6 @@
 .git
 **/.idea
+**/.ipynb_checkpoints
 **/__pycache__
 **/data
 **/illustrations_and_results
