@@ -1,3 +1,7 @@
+"""
+The contents of this file are duplicated in the attached notebook for readability
+For most tests, comparisons and visualization we advise you to refer to it.
+"""
 import argparse
 import torch
 from torch.utils.data import Dataset
@@ -14,8 +18,11 @@ PATIENCE = 20
 PATH = 'trained_models\\'
 PIC_DIM = 28
 EPS = 0.25
+
+# regularization variables
 C = 1
 GAMMA = 0.0
+THR = 0.0
 
 
 def custom_loss(output, noise, target, cnn):
@@ -39,20 +46,25 @@ class PGEN_NN(nn.Module):
         x = F.relu(x)
         x = F.max_pool2d(x, 2)  # 16,13,13
         x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
+        x = torch.flatten(x, 1)  # 2704
+        x = self.fc1(x)  # 1024
         x = F.relu(x)
         x = self.dropout2(x)
-        x = self.fc2(x)
+        x = self.fc2(x)  # 784
         x = torch.reshape(x, (-1, 1, PIC_DIM, PIC_DIM))
         output = torch.clamp(torch.tanh(x) * EPS + org, 0, 1)
         return output, x
 
     def generate(self, x, device):
+        """
+        this function is the same as forward except it uses sign instead of tanh for noise generation
+        for discussion regarding the reasons please refer to the submitted pdf document
+        threshold value THR is also used to limit the noise added (please refer to appendix C in the pdf document)
+        """
         org = x
-        x = self.conv1(x)  # 16,26,26
+        x = self.conv1(x)
         x = F.relu(x)
-        x = F.max_pool2d(x, 2)  # 16,13,13
+        x = F.max_pool2d(x, 2)
         x = self.dropout1(x)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
@@ -61,7 +73,7 @@ class PGEN_NN(nn.Module):
         x = self.fc2(x)
         x = torch.reshape(x, (-1, 1, PIC_DIM, PIC_DIM))
         x = torch.tanh(x).cpu().numpy()
-        x = torch.from_numpy(np.where(np.abs(x) > 0.9, x, 0)).to(device)
+        x = torch.from_numpy(np.where(np.abs(x) > THR, x, 0)).to(device)
         output = torch.clamp(torch.sign(x) * EPS + org, 0, 1)
         return output, x
 
@@ -85,6 +97,7 @@ def train(args, model, device, train_loader, optimizer, epoch, cnn):
 
 def test(model, device, test_loader, cnn):
     model.eval()
+    # values for statistics
     test_loss = 0
     noise_count = 0
     correct = 0
@@ -92,6 +105,8 @@ def test(model, device, test_loader, cnn):
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             output, noise = model.generate(data, device)
+
+            # update statistics values
             noise_count += torch.sum(torch.abs(noise))
             test_loss += custom_loss(output, noise, target,
                                      cnn) * len(data)
@@ -118,10 +133,6 @@ def main():
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=50, metavar='N',
                         help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                        help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                        help='Learning rate step gamma (default: 0.7)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--dry-run', action='store_true', default=False,
@@ -176,7 +187,7 @@ def main():
 
     # create model, initialize optimizer
     model = PGEN_NN().to(device)
-    optimizer = optim.Adadelta(model.parameters(), lr = args.lr)
+    optimizer = optim.Adadelta(model.parameters())
 
     if not args.load_model:  # don't need to load
         best_epoch = 0
@@ -190,7 +201,7 @@ def main():
                 best_loss = dev_loss
                 best_epoch = epoch
             if args.save_model:  # need to save model
-                model_name = 'pgen_nn_epoch%d.pt' % epoch
+                model_name = 'something_pgen_nn_epoch%d.pt' % epoch
                 torch.save(model.state_dict(), PATH + model_name)
 
             """
