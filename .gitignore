@@ -4,3 +4,7 @@
 **/__pycache__
 **/data
 **/illustrations_and_results
+**/temp_dqn
+**/utils
+**/trained_models/pgen_nn_epoch*
+dqn_dqn.log
