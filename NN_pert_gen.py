@@ -4,11 +4,9 @@ For most tests, comparisons and visualization we advise you to refer to it.
 """
 import argparse
 import torch
-from torch.utils.data import Dataset
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchvision
 from torchvision import datasets, transforms
 import time
 import numpy as np
@@ -78,16 +76,16 @@ class PGEN_NN(nn.Module):
         return output, x
 
 
-def train(args, model, device, train_loader, optimizer, epoch, cnn):
+def train(args, model, device, train_loader, optimizer, epoch, cnn, verbos=True):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
+        data, target = data.to(device), target.long().to(device)
         optimizer.zero_grad()
         output, noise = model(data)
         loss = custom_loss(output, noise, target, cnn)  # F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
+        if verbos and batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                        100. * batch_idx / len(train_loader), loss.item()))
@@ -95,7 +93,7 @@ def train(args, model, device, train_loader, optimizer, epoch, cnn):
                 break
 
 
-def test(model, device, test_loader, cnn):
+def test(model, device, test_loader, cnn, verbos=True):
     model.eval()
     # values for statistics
     test_loss = 0
@@ -103,7 +101,7 @@ def test(model, device, test_loader, cnn):
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(device), target.long().to(device)
             output, noise = model.generate(data, device)
 
             # update statistics values
@@ -116,12 +114,13 @@ def test(model, device, test_loader, cnn):
 
     test_loss /= len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%), noise average = {:.4f}\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset),
-        noise_count / len(test_loader.dataset)))
+    if verbos:
+        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%), noise average = {:.4f}\n'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset),
+            noise_count / len(test_loader.dataset)))
 
-    return test_loss
+    return test_loss, correct / len(test_loader.dataset)
 
 
 def main():
@@ -163,6 +162,7 @@ def main():
                        'shuffle': True}
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
+        torch.cuda.manual_seed(args.seed)
 
     # get datasets and create loaders
     transform = transforms.Compose([
@@ -175,6 +175,7 @@ def main():
                                                        generator=torch.Generator().manual_seed(42))
     dataset2 = datasets.MNIST('../data', train=False, download=True,
                               transform=transform)
+
     train_loader = torch.utils.data.DataLoader(train_set, **train_kwargs)
     dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
@@ -196,12 +197,12 @@ def main():
         # run training
         for epoch in range(1, args.epochs + 1):
             train(args, model, device, train_loader, optimizer, epoch, cnn)
-            dev_loss = test(model, device, dev_loader, cnn)
+            dev_loss, _ = test(model, device, dev_loader, cnn)
             if dev_loss < best_loss:  # found better epoch
                 best_loss = dev_loss
                 best_epoch = epoch
             if args.save_model:  # need to save model
-                model_name = 'something_pgen_nn_epoch%d.pt' % epoch
+                model_name = 'pgen_nn_epoch%d.pt' % epoch
                 torch.save(model.state_dict(), PATH + model_name)
 
             """
