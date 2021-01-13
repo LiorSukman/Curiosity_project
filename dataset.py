@@ -10,7 +10,8 @@ class Dataset:
         else:
             indices = np.arange(len(labels))
 
-        self.data = [(images[i], labels[i]) for i in indices]
+        self.images = images[indices]
+        self.labels = labels[indices]
         self.kwargs = {'batch_size': batch_size}
 
         if use_cuda:
@@ -20,10 +21,10 @@ class Dataset:
             self.kwargs.update(cuda_kwargs)
 
     def __len__(self):
-        return len(self.data)
+        return len(self.labels)
 
     def __getitem__(self, item):
-        return self.data[item]
+        return self.images[item], self.labels[item]
 
     def get_dataloader(self):
-        return torch.utils.data.DataLoader(self.data, **self.kwargs)
+        return torch.utils.data.DataLoader(self, **self.kwargs)

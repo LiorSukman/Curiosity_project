@@ -10,31 +10,7 @@ from dataset import Dataset
 from mnist_model import Net
 from NN_pert_gen import PGEN_NN, PATH, train, test
 
-use_cuda = torch.cuda.is_available()
-
-"""
-def episode_split(num_episodes, train_images, train_labels, classes=np.arange(10), shuffle=True):
-    # TODO remove if unnecessary
-    data_size = train_labels.shape[0]
-    ratio = 1 / num_episodes
-
-    if shuffle:
-        shuffled_inds = np.arange(data_size)
-        np.random.shuffle(shuffled_inds)
-        train_images = train_images[shuffled_inds]
-        train_labels = train_labels[shuffled_inds]
-
-    episodes = []
-    indices = [(train_labels == c).nonzero() for c in classes]
-
-    for e in range(num_episodes):
-        episode_inds = np.vstack(tuple([inds[int(e * (inds.shape[0] * ratio)): int((e + 1) * (inds.shape[0] * ratio))]
-                                        for inds in indices]))
-        episode_images, episode_labels = train_images[episode_inds], train_labels[episode_inds]
-        episodes.append((episode_images, episode_labels))
-
-    return episodes
-"""
+use_cuda = False  # torch.cuda.is_available() with small datasets as used here better without because of overhead
 
 
 def sample_episode(episode_size, train_images, train_labels, classes=np.arange(10)):
@@ -52,19 +28,6 @@ def sample_episode(episode_size, train_images, train_labels, classes=np.arange(1
     labels = np.hstack(tuple(labels))
 
     return images, labels
-
-
-"""
-def episodes_unittest(episodes, classes=np.arange(10)):
-    # TODO remove if unnecessary
-    for i, episode in enumerate(episodes):
-        _, episode_labels = episode
-        print('--------------------')
-        print(f'episode {i}:')
-        print(f'    length is {len(episode_labels)}')
-        for c in classes:
-            print(f'    Number of elements of class {c} is {(episode_labels == c).nonzero().shape[0]}')
-"""
 
 
 def split_data(x, y, percentage, classes):
@@ -105,8 +68,8 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
             torch.save(model.state_dict(), PATH + model_name)
 
     end_time = time.time()
-    print('Training took %.3f seconds' % (end_time - start_time))
-    print('Best model was achieved on epoch %d' % best_epoch)
+    print('    Training took %.3f seconds' % (end_time - start_time))
+    print('    Best model was achieved on epoch %d' % best_epoch)
     model.load_state_dict(torch.load(PATH + model_name))  # load model from best epoch
 
 
@@ -118,11 +81,11 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
     gamma = 0.01
 
     for i in range(N_iter):
-        print(f'Starting episode {i + 1}')
+        print(f'************Starting episode {i + 1}************')
         episode_images, episode_labels = sample_episode(N_episode, train_images, train_labels, classes=classes)
         train_episode_images, dev_episode_images, train_episode_labels, dev_episode_labels = \
             split_data(episode_images, episode_labels, 0.2, classes)
-        e0 = 0.5  # TODO rethink this value - should probably be the training error rate
+        e0 = 0.015  # TODO rethink this value - should probably be the training error rate
         st = 10
         c_sel = []
         c_available = list(classes)
@@ -130,39 +93,42 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
                                           (0.3 if (N_iter / 2 <= i < 3 * N_iter / 4) else 0.1))
         alpha = 0.09 if i < N_iter / 4 else (0.05 if (N_iter / 4 <= i < N_iter / 2) else
                                              (0.01 if (N_iter / 2 <= i < 3 * N_iter / 4) else 0.005))
+        dev_dataset = Dataset(dev_episode_images, dev_episode_labels, None, args.test_batch_size, use_cuda)
+        dev_loader = dev_dataset.get_dataloader()
         t = 0
         while len(c_available) != 0:
+            print(f'    Starting time step {t}')
             if eps > random.random():
-                at = random.sample(c_available, 1)
+                at = random.sample(c_available, 1)[0]
             else:
-                qa = Q[st]
+                qa = Q[st].copy()
+                qa[c_sel] = 0
                 if qa.max() <= 0:
                     break
                 at = qa.argmax()
             print(f'    rl chose action {at}')
             c_available.remove(at)
             c_sel.append(at)
-            train_dataset = Dataset(train_episode_images, train_episode_labels, c_sel, args.batch_size,
-                                    use_cuda and not args.no_cuda)
-            dev_dataset = Dataset(dev_episode_images, dev_episode_labels, None, args.test_batch_size,
-                                  use_cuda and not args.no_cuda)
+            train_dataset = Dataset(train_episode_images, train_episode_labels, c_sel, args.batch_size, use_cuda)
             train_loader = train_dataset.get_dataloader()
-            dev_loader = dev_dataset.get_dataloader()
+            print(f'    dataset size is {len(train_dataset)}')
 
             model = PGEN_NN().to(device)
             optimizer = optim.Adadelta(model.parameters())
 
-            name = f'pgen_nn_episode_{i}_time{t}_action{at}'
+            name = f'pgen_nn_episode_{i}_time_{t}_action_{at}'
             train_model(model, optimizer, args, train_loader, device, cnn, name)
             _, acc = test(model, device, dev_loader, cnn, verbos=False)
             et = 1 - acc
+            print(f'    error rate of the learner was {et}')
             rt = et - e0  # TODO reconsider as I flipped it
             Q[st, at] += alpha * (rt + gamma * (Q[at].max()) - Q[st, at])
             st = at
             e0 = et
             t += 1
+            print('--------------')
 
-        return Q
+    return Q
 
 
 def main():
@@ -173,8 +139,6 @@ def main():
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=50, metavar='N',
                         help='number of epochs to train (default: 50)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=40, metavar='N',
@@ -193,7 +157,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    device = torch.device("cuda" if use_cuda and not args.no_cuda else "cpu")  # device to run the model on
+    device = torch.device("cuda" if use_cuda else "cpu")  # device to run the model on
 
     # organize parsed data
     if use_cuda:
