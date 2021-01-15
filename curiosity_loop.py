@@ -5,6 +5,7 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 import random
+import matplotlib.pyplot as plt
 
 from dataset import Dataset
 from mnist_model import Net
@@ -55,6 +56,7 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
     best_epoch = 0
     best_loss = float('inf')
     model_name = name + '_best.pt'
+    # losses = []
     start_time = time.time()
     # run training
     for epoch in range(1, args.epochs + 1):
@@ -62,6 +64,7 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
             print(f'        In epoch {epoch}')
         train(args, model, device, dataloader, optimizer, epoch, cnn, verbos=False)
         loss, accuracy = test(model, device, dataloader, cnn, verbos=False)
+        # losses.append(loss)
         if loss < best_loss:  # found better epoch
             best_loss = loss
             best_epoch = epoch
@@ -72,15 +75,33 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
     print('    Best model was achieved on epoch %d' % best_epoch)
     model.load_state_dict(torch.load(PATH + model_name))  # load model from best epoch
 
+    # plt.plot(np.arange(1, args.epochs + 1), losses)
+    # plt.show()
+
 
 def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.arange(10)):
     # TODO move constants to args
-    Q = np.ones((len(classes) + 1, len(classes)))  # TODO need to rethink value if using loss instead of error rate
     N_episode = 600
     N_iter = 10 * train_images.shape[0] // N_episode
     gamma = 0.01
 
-    for i in range(N_iter):
+    if args.load_model:
+        Q = np.load(args.load_path + 'policy.npy')
+        errors = list(np.load(args.load_path + 'errors.npy'))
+        losses = list(np.load(args.load_path + 'losses.npy'))
+        cur_episode = len(losses)
+
+        random.seed(args.seed + cur_episode)
+        np.random.seed(args.seed + cur_episode)
+        torch.manual_seed(args.seed + cur_episode)
+    else:
+        Q = np.ones((len(classes) + 1, len(classes)))  # TODO need to rethink value if using loss instead of error rate
+        errors = []
+        losses = []
+        cur_episode = 0
+
+    for i in range(cur_episode, N_iter):
+        start_time = time.time()
         print(f'************Starting episode {i + 1}************')
         episode_images, episode_labels = sample_episode(N_episode, train_images, train_labels, classes=classes)
         train_episode_images, dev_episode_images, train_episode_labels, dev_episode_labels = \
@@ -96,6 +117,8 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
         dev_dataset = Dataset(dev_episode_images, dev_episode_labels, None, args.test_batch_size, use_cuda)
         dev_loader = dev_dataset.get_dataloader()
         t = 0
+        error = []
+        loss = []
         while len(c_available) != 0:
             print(f'    Starting time step {t}')
             if eps > random.random():
@@ -118,8 +141,10 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
 
             name = f'pgen_nn_episode_{i}_time_{t}_action_{at}'
             train_model(model, optimizer, args, train_loader, device, cnn, name)
-            _, acc = test(model, device, dev_loader, cnn, verbos=False)
+            loss_val, acc = test(model, device, dev_loader, cnn, verbos=False)
             et = 1 - acc
+            error.append(et)
+            loss.append(loss_val)
             print(f'    error rate of the learner was {et}')
             rt = et - e0  # TODO reconsider as I flipped it
             Q[st, at] += alpha * (rt + gamma * (Q[at].max()) - Q[st, at])
@@ -127,8 +152,18 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
             e0 = et
             t += 1
             print('--------------')
+        errors.append(np.array(error))
+        losses.append(np.array(loss))
 
-    return Q
+        if args.save_model:
+            np.save(PATH + 'policy', Q)
+            np.save(PATH + 'errors', errors)
+            np.save(PATH + 'losses', losses)
+
+        end_time = time.time()
+        print('Episode took %.3f seconds' % (end_time - start_time))
+
+    return Q, errors, losses
 
 
 def main():
@@ -145,9 +180,9 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
-    parser.add_argument('--load-model', action='store_true', default=False,
+    parser.add_argument('--load-model', action='store_true', default=True,
                         help='For Loading the Model Instead of Training')
-    parser.add_argument('--load-path', type=str, default="",
+    parser.add_argument('--load-path', type=str, default=PATH,
                         help='For Loading the Model Instead of Training')
     parser.add_argument('--cnn-path', type=str, default="trained_models\\mnist_cnn_epoch62.pt",
                         help='For Loading the Classifying CNN')
@@ -183,7 +218,7 @@ def main():
         param.requires_grad = False
     cnn.eval()
 
-    policy = curiosity_loop(train_images, train_labels, args, device, cnn)
+    policy, errors, losses = curiosity_loop(train_images, train_labels, args, device, cnn)
 
 
 if __name__ == '__main__':

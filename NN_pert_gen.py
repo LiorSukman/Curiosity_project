@@ -79,7 +79,7 @@ class PGEN_NN(nn.Module):
 def train(args, model, device, train_loader, optimizer, epoch, cnn, verbos=True):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.long().to(device)
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output, noise = model(data)
         loss = custom_loss(output, noise, target, cnn)  # F.nll_loss(output, target)
@@ -101,7 +101,7 @@ def test(model, device, test_loader, cnn, verbos=True):
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
-            data, target = data.to(device), target.long().to(device)
+            data, target = data.to(device), target.to(device)
             output, noise = model.generate(data, device)
 
             # update statistics values

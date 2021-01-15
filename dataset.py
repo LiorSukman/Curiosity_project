@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-class Dataset:
+class Dataset(torch.utils.data.Dataset):
     def __init__(self, images, labels, classes, batch_size, use_cuda):
         if classes is not None:
             indices = [(labels == c).nonzero()[0] for c in classes]
@@ -10,14 +10,13 @@ class Dataset:
         else:
             indices = np.arange(len(labels))
 
-        self.images = images[indices]
-        self.labels = labels[indices]
-        self.kwargs = {'batch_size': batch_size}
+        self.images = torch.tensor(images[indices])
+        self.labels = torch.tensor(labels[indices]).long()
+        self.kwargs = {'batch_size': batch_size, 'shuffle': True}
 
         if use_cuda:
             cuda_kwargs = {'num_workers': 1,
-                           'pin_memory': True,
-                           'shuffle': True}
+                           'pin_memory': True}
             self.kwargs.update(cuda_kwargs)
 
     def __len__(self):
