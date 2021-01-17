@@ -5,7 +5,7 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 import random
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 from dataset import Dataset
 from mnist_model import Net
@@ -25,7 +25,7 @@ def sample_episode(episode_size, train_images, train_labels, classes=np.arange(1
         images.append(train_images[meta_inds])
         labels.append(train_labels[meta_inds])
 
-    images = np.vstack(tuple(images))  # TODO recheck this stacking, something is weird that they are not the same
+    images = np.vstack(tuple(images))
     labels = np.hstack(tuple(labels))
 
     return images, labels
@@ -52,7 +52,6 @@ def split_data(x, y, percentage, classes):
 
 
 def train_model(model, optimizer, args, dataloader, device, cnn, name):
-    # TODO check if using train set to stop learning is methodologically ok
     best_epoch = 0
     best_loss = float('inf')
     model_name = name + '_best.pt'
@@ -80,10 +79,10 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
 
 
 def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.arange(10)):
-    # TODO move constants to args
-    N_episode = 600
+    N_episode = args.n_episode
     N_iter = 10 * train_images.shape[0] // N_episode
-    gamma = 0.01
+    gamma = args.discount_factor
+    threshold = args.threshold
 
     if args.load_model:
         Q = np.load(args.load_path + 'policy.npy')
@@ -95,7 +94,7 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
         np.random.seed(args.seed + cur_episode)
         torch.manual_seed(args.seed + cur_episode)
     else:
-        Q = np.ones((len(classes) + 1, len(classes)))  # TODO need to rethink value if using loss instead of error rate
+        Q = np.ones((len(classes) + 1, len(classes)))
         errors = []
         losses = []
         cur_episode = 0
@@ -106,7 +105,7 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
         episode_images, episode_labels = sample_episode(N_episode, train_images, train_labels, classes=classes)
         train_episode_images, dev_episode_images, train_episode_labels, dev_episode_labels = \
             split_data(episode_images, episode_labels, 0.2, classes)
-        e0 = 0.015  # TODO rethink this value - should probably be the training error rate
+        e0 = 0.985
         st = 10
         c_sel = []
         c_available = list(classes)
@@ -125,8 +124,8 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
                 at = random.sample(c_available, 1)[0]
             else:
                 qa = Q[st].copy()
-                qa[c_sel] = 0
-                if qa.max() <= 0:
+                qa[c_sel] = threshold
+                if qa.max() <= threshold:
                     break
                 at = qa.argmax()
             print(f'    rl chose action {at}')
@@ -141,12 +140,11 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
 
             name = f'pgen_nn_episode_{i}_time_{t}_action_{at}'
             train_model(model, optimizer, args, train_loader, device, cnn, name)
-            loss_val, acc = test(model, device, dev_loader, cnn, verbos=False)
-            et = 1 - acc
+            loss_val, et = test(model, device, dev_loader, cnn, verbos=False)
             error.append(et)
             loss.append(loss_val)
-            print(f'    error rate of the learner was {et}')
-            rt = et - e0  # TODO reconsider as I flipped it
+            print(f'    error of the learner was {et}')
+            rt = e0 - et
             Q[st, at] += alpha * (rt + gamma * (Q[at].max()) - Q[st, at])
             st = at
             e0 = et
@@ -180,12 +178,18 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
-    parser.add_argument('--load-model', action='store_true', default=True,
+    parser.add_argument('--load-model', action='store_true', default=False,
                         help='For Loading the Model Instead of Training')
     parser.add_argument('--load-path', type=str, default=PATH,
                         help='For Loading the Model Instead of Training')
     parser.add_argument('--cnn-path', type=str, default="trained_models\\mnist_cnn_epoch62.pt",
                         help='For Loading the Classifying CNN')
+    parser.add_argument('--n-episode', type=int, default=600, metavar='N',
+                        help='Number of examples in each episode')
+    parser.add_argument('--discount-factor', type=float, default=0.9, metavar='N',
+                        help='Discount factor for the curiosity loop')
+    parser.add_argument('--threshold', type=float, default=-0.05, metavar='N',
+                        help='Threshold for Q table')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -204,13 +208,13 @@ def main():
     ])
     dataset1 = datasets.MNIST('../data', train=True, download=True,
                               transform=transform)
-    dataset2 = datasets.MNIST('../data', train=False, download=True,
-                              transform=transform)
+    # dataset2 = datasets.MNIST('../data', train=False, download=True,
+    #                           transform=transform)
 
     train_images = np.array([dataset1[i][0].numpy() for i in range(len(dataset1))])
     train_labels = np.array([dataset1[i][1] for i in range(len(dataset1))])
-    test_images = np.array([dataset2[i][0].numpy() for i in range(len(dataset2))])
-    test_labels = np.array([dataset2[i][1] for i in range(len(dataset2))])
+    # test_images = np.array([dataset2[i][0].numpy() for i in range(len(dataset2))])
+    # test_labels = np.array([dataset2[i][1] for i in range(len(dataset2))])
 
     cnn = Net().to(device)
     cnn.load_state_dict(torch.load(args.cnn_path))
@@ -218,7 +222,8 @@ def main():
         param.requires_grad = False
     cnn.eval()
 
-    policy, errors, losses = curiosity_loop(train_images, train_labels, args, device, cnn)
+    # policy, errors, losses = curiosity_loop(train_images, train_labels, args, device, cnn)
+    _, _, _ = curiosity_loop(train_images, train_labels, args, device, cnn)
 
 
 if __name__ == '__main__':

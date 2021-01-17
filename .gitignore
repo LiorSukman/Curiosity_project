@@ -4,5 +4,6 @@
 **/__pycache__
 **/data
 **/illustrations_and_results
-**/trained_models/pgen_nn_epoch*
+**/trained_models/*/pgen_nn_*
+**/trained_models/pgen_nn_*
 **/obsolete_dqn

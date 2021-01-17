@@ -81,8 +81,11 @@ def main():
     errors = list(np.load(args.load_path + 'errors.npy', allow_pickle=True))
     losses = list(np.load(args.load_path + 'losses.npy', allow_pickle=True))
 
-    print(Q*100)
+    Q = Q.flatten()
+    Q.sort()
+    print(Q)
 
+    create_graph(errors)
     create_graph(losses)
 
 
