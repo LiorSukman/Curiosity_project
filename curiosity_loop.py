@@ -51,7 +51,7 @@ def split_data(x, y, percentage, classes):
     return x_train, x_test, y_train, y_test
 
 
-def train_model(model, optimizer, args, dataloader, device, cnn, name):
+def train_model(model, optimizer, args, dataloader, device, cnn, name, verbos=False, dev_loader=None):
     best_epoch = 0
     best_loss = float('inf')
     model_name = name + '_best.pt'
@@ -61,8 +61,11 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
     for epoch in range(1, args.epochs + 1):
         if epoch % 10 == 0:
             print(f'        In epoch {epoch}')
-        train(args, model, device, dataloader, optimizer, epoch, cnn, verbos=False)
-        loss, accuracy = test(model, device, dataloader, cnn, verbos=False)
+        train(args, model, device, dataloader, optimizer, epoch, cnn, verbos=verbos)
+        if dev_loader is None:
+            loss, accuracy = test(model, device, dataloader, cnn, verbos=verbos)
+        else:
+            loss, accuracy = test(model, device, dev_loader, cnn, verbos=verbos)
         # losses.append(loss)
         if loss < best_loss:  # found better epoch
             best_loss = loss
@@ -76,6 +79,43 @@ def train_model(model, optimizer, args, dataloader, device, cnn, name):
 
     # plt.plot(np.arange(1, args.epochs + 1), losses)
     # plt.show()
+
+
+def curiosity_loop_test(Q, train_images, train_labels, test_loader, args, device, cnn, classes=np.arange(10),
+                        randomize=False, dev_loader=None):
+    errors = []
+    losses = []
+    c_sel = []
+    st = 10
+    c_available = list(classes)
+    while len(c_available) != 0:
+        if randomize:
+            at = random.sample(c_available, 1)[0]
+            print(f'    randomly chose action {at}')
+        else:
+            qa = Q[st].copy()
+            qa[c_sel] = -1  # might not be generic but suits our case
+            at = qa.argmax()
+            print(f'    rl chose action {at} with Q value of {qa.max()}')
+        c_available.remove(at)
+        c_sel.append(at)
+        train_dataset = Dataset(train_images, train_labels, c_sel, args.batch_size, use_cuda)
+        train_loader = train_dataset.get_dataloader()
+        print(f'    dataset size is {len(train_dataset)}')
+
+        model = PGEN_NN().to(device)
+        optimizer = optim.Adadelta(model.parameters())
+
+        name = f'pgen_nn_test_randomize_{randomize}_at_{at}'
+        train_model(model, optimizer, args, train_loader, device, cnn, name, verbos=False, dev_loader=dev_loader)
+        loss_val, et = test(model, device, test_loader, cnn, verbos=False)
+        errors.append(et)
+        losses.append(loss_val)
+        print(f'    error of the learner was {et}')
+        st = at
+        print('--------------')
+
+    return errors, losses, c_sel
 
 
 def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.arange(10)):
