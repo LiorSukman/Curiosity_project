@@ -6,17 +6,25 @@ import random
 import matplotlib.pyplot as plt
 from scipy.stats import sem
 
-from dataset import Dataset
 from mnist_model import Net
 from NN_pert_gen import PATH
 from curiosity_loop import curiosity_loop_test
 
-use_cuda = True  # torch.cuda.is_available() with small datasets as used here better without because of overhead
+use_cuda = torch.cuda.is_available()
 
 
-def compare_q_graph():
-    steps = np.arange(1, 11)
+def compare_q_graph(reps=10):
+    """
+        Create a graph of comparison between the random policy and learned policy
 
+        Parameters
+        ----------
+        reps : int, default=10
+            the number of repetitions for the learned policy and random policy
+    """
+    steps = np.arange(1, reps + 1)
+
+    # load relevant files
     q_errors = np.load(PATH + 'q_errors.npy', allow_pickle=True)
     r_errors = np.load(PATH + 'r_errors.npy', allow_pickle=True)
 
@@ -29,6 +37,8 @@ def compare_q_graph():
     plt.show()
     plt.clf()
 
+    # uncomment the next section for losses comparison graph
+    """
     q_losses = np.load(PATH + 'q_losses.npy', allow_pickle=True)
     r_losses = np.load(PATH + 'r_losses.npy', allow_pickle=True)
 
@@ -43,13 +53,45 @@ def compare_q_graph():
     plt.legend()
     plt.show()
     plt.clf()
+    """
 
 
 def compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn, reps=10, dev_loader=None):
+    """
+        Compare learned policy with random policy,
+        results are saved under PATH as q_errors.npy, q_losses.npy, q_c_sels.npy
+        which are the Q based errors, losses and selected actiond respectively
+        and r_errors.npy, r_losses.npy, r_c_sels.npy which are the random policy
+        based errors, losses and selected actiond respectively.
 
+            Parameters
+            ----------
+            Q : numpy array
+                two dimensional ndarray of the learned Q table
+            train_images : numpy array
+                images of the data
+            train_labels : numpy array
+                labels of the data corresponding to train_images
+            test_loader : torch dataloader
+                dataloader to use for evaluation
+            args : parser
+                parser containig hyperparameters
+            device : torch device
+                device the model is ran on, can be cpu or gpu
+            cnn : torch model
+                a CNN used for classifying the perturbed data, please see part 2 submission for elaboration
+            reps : int, default=10
+                the number of repetitions for the learned policy and random policy
+            dev_loader : torch dataloader, default=None
+                if given, used for model selection, otherwise train data is used
+
+    """
+    # initialize dataholders
     q_errors = []
     q_losses = []
     q_c_sels = []
+
+    # start Q evaluation
     for i in range(reps):
         q_error, q_loss, q_c_sel = curiosity_loop_test(Q, train_images, train_labels, test_loader, args,
                                                        device, cnn, dev_loader=dev_loader)
@@ -59,13 +101,17 @@ def compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn,
 
         print(f'finished repetition {i + 1} using Q')
 
+    # save results
     np.save(PATH + 'q_errors', np.array(q_errors))
     np.save(PATH + 'q_losses', np.array(q_losses))
     np.save(PATH + 'q_c_sels', np.array(q_c_sels))
 
+    # initialize dataholders
     r_errors = []
     r_losses = []
     r_c_sels = []
+
+    # start random policy evaluation
     for i in range(reps):
         r_error, r_loss, r_c_sel = curiosity_loop_test(Q, train_images, train_labels, test_loader, args,
                                                        device, cnn, randomize=True, dev_loader=dev_loader)
@@ -75,13 +121,31 @@ def compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn,
 
         print(f'finished repetition {i + 1} randomly')
 
+    # save results
     np.save(PATH + 'r_errors', np.array(r_errors))
     np.save(PATH + 'r_losses', np.array(r_losses))
     np.save(PATH + 'r_c_sels', np.array(r_c_sels))
 
 
-def create_graph(errors, w=1, xlabel='', ylabel='', title=''):
-    y = [np.mean(error) for error in errors]
+def create_graph(data, w=1, xlabel='', ylabel='', title=''):
+    """
+    Create a graph of the information
+
+        Parameters
+        ----------
+        data : list of list of float
+            the data to plot
+        w : int
+            window size
+        xlabel : str
+            string representing the label of the x axis
+        ylabel : str
+            string representing the label of the y axis
+        title : str
+            string representing the title
+
+    """
+    y = [np.mean(d) for d in data]  # average steps in episode
 
     y = np.convolve(y, np.ones(w), 'valid') / w
     x = np.arange(1, len(y) + 1)
@@ -153,11 +217,12 @@ def main():
     errors = list(np.load(args.load_path + 'errors.npy', allow_pickle=True))
     losses = list(np.load(args.load_path + 'losses.npy', allow_pickle=True))
 
-    print(Q)  # TODO present it nicer
+    print(Q)
 
     create_graph(errors, w=20, xlabel='Step', ylabel='Average Error Fraction', title='Model\'s Average Error Fraction by Curiosity Loop Episode')
     create_graph(losses, w=20, xlabel='Step', ylabel='Avergae Loss', title='Model\'s Average Loss by Curiosity Loop Step')
 
+    # uncomment if you do not want to rerun
     # compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn, dev_loader=dev_loader)
 
     compare_q_graph()
