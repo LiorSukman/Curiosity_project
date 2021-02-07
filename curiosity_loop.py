@@ -258,6 +258,7 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
     if args.load_model:  # continue stopped learning process
         # load Q and data holders
         Q = np.load(args.load_path + 'policy.npy')
+        q_first = np.load(args.load_path + 'q_first.npy')
         errors = list(np.load(args.load_path + 'errors.npy'))
         losses = list(np.load(args.load_path + 'losses.npy'))
         cur_episode = len(losses)
@@ -268,6 +269,7 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
     else:  # start new learning process
         # initialize Q and data holders
         Q = np.ones((len(classes) + 1, len(classes)))
+        q_first = np.zeros((len(classes) + 1, len(classes)))
         errors = []
         losses = []
         cur_episode = 0
@@ -326,7 +328,11 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
             print(f'    error of the learner was {et}')
             rt = e0 - et  # calculate reward
             # optimization step
-            Q[st, at] += alpha * (rt + gamma * (Q[at].max()) - Q[st, at])
+            if q_first[st, at] == 0:
+                Q[st, at] = rt
+                q_first[st, at] = 1
+            else:
+                Q[st, at] += alpha * (rt + gamma * (Q[at].max()) - Q[st, at])
             st = at
             e0 = et
             t += 1
@@ -336,6 +342,7 @@ def curiosity_loop(train_images, train_labels, args, device, cnn, classes=np.ara
 
         if args.save_model:
             np.save(PATH + 'policy', Q)
+            np.save(PATH + 'q_first', q_first)
             np.save(PATH + 'errors', errors)
             np.save(PATH + 'losses', losses)
 
@@ -359,7 +366,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
-    parser.add_argument('--load-model', action='store_true', default=False,
+    parser.add_argument('--load-model', action='store_true', default=True,
                         help='For Loading the Model Instead of Training')
     parser.add_argument('--load-path', type=str, default=PATH,
                         help='For Loading the Model Instead of Training')

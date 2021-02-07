@@ -222,8 +222,8 @@ def main():
     create_graph(errors, w=20, xlabel='Step', ylabel='Average Error Fraction', title='Model\'s Average Error Fraction by Curiosity Loop Episode')
     create_graph(losses, w=20, xlabel='Step', ylabel='Avergae Loss', title='Model\'s Average Loss by Curiosity Loop Step')
 
-    # uncomment if you do not want to rerun
-    # compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn, dev_loader=dev_loader)
+    #uncomment if you do not want to rerun
+    compare_q_run(Q, train_images, train_labels, test_loader, args, device, cnn, dev_loader=dev_loader)
 
     compare_q_graph()
 
